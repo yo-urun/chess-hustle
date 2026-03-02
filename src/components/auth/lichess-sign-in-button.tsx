@@ -10,9 +10,20 @@ export const LichessSignInButton = () => {
   const handleSignIn = async () => {
     setIsLoading(true);
     try {
-      await signInWithLichess();
-    } catch (error) {
+      const result = await signInWithLichess();
+      
+      if (result?.error) {
+        alert(`Ошибка: ${result.error}`);
+        setIsLoading(false);
+        return;
+      }
+
+      if (result?.url) {
+        window.location.href = result.url;
+      }
+    } catch (error: any) {
       console.error('Ошибка при входе через Lichess:', error);
+      alert(`Критическая ошибка: ${error.message || 'Неизвестная ошибка'}`);
       setIsLoading(false);
     }
   };
