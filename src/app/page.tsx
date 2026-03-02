@@ -1,64 +1,92 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useEffect, useState } from 'react';
+import { createClient } from '@/lib/supabase';
+import { Button } from '@/components/ui/button';
+import { LogOut, Settings as SettingsIcon, Users } from 'lucide-react';
+import { Dashboard } from '@/components/dashboard';
+import { StudentProfile } from '@/components/student-profile';
+import { Settings } from '@/components/settings';
+import { useApp } from '@/lib/context/app-context';
+
+export default function HomePage() {
+  const [user, setUser] = useState<any>(null);
+  const [supabase] = useState(() => createClient());
+  const { view, setView, selectStudent } = useApp();
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+    };
+    getUser();
+  }, [supabase]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/login';
+  };
+
+  const renderContent = () => {
+    switch (view) {
+      case 'settings': return <Settings />;
+      case 'profile': return <StudentProfile />;
+      default: return <Dashboard />;
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="min-h-screen bg-[#1f1f1f] text-[#e0e0e0] flex flex-col">
+      {/* Верхняя панель */}
+      <header className="h-14 border-b border-white/5 bg-[#2a2a2a] flex items-center justify-between px-6 sticky top-0 z-10">
+        <div className="flex items-center gap-4">
+          <button 
+            onClick={() => selectStudent(null)}
+            className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            ChessCoach<span className="text-[#4fc3f7]">Ai</span>
+          </button>
+          <nav className="hidden md:flex items-center gap-1 ml-8">
+            <Button 
+              variant="ghost" 
+              onClick={() => selectStudent(null)}
+              className={`flex items-center gap-2 ${view === 'dashboard' || view === 'profile' ? 'text-[#4fc3f7] bg-[#4fc3f7]/10' : ''}`}
+            >
+              <Users className="w-4 h-4" />
+              Мои ученики
+            </Button>
+            <Button 
+              variant="ghost" 
+              onClick={() => setView('settings')}
+              className={`flex items-center gap-2 ${view === 'settings' ? 'text-[#4fc3f7] bg-[#4fc3f7]/10' : ''}`}
+            >
+              <SettingsIcon className="w-4 h-4" />
+              Настройки
+            </Button>
+          </nav>
         </div>
+        
+        <div className="flex items-center gap-4">
+          <div className="flex flex-col items-end mr-2">
+            <span className="text-[10px] text-[#4fc3f7] uppercase tracking-widest font-bold">Тренер</span>
+            <span className="text-sm font-medium text-[#e0e0e0]/90">
+              {user?.user_metadata?.username || user?.email?.split('@')[0].replace('lichess_', '') || '...'}
+            </span>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={handleSignOut}
+            title="Выйти"
+            className="h-9 w-9 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </Button>
+        </div>
+      </header>
+
+      <main className="flex-1">
+        {renderContent()}
       </main>
     </div>
   );
