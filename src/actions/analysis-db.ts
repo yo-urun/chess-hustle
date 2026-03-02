@@ -11,6 +11,7 @@ export interface SavedAnalysis {
   pgn: string;
   analysis_data: any;
   report: string;
+  analysis_type?: 'deep' | 'surface';
   created_at: string;
 }
 

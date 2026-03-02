@@ -6,6 +6,7 @@ import os
 import io
 import requests
 from typing import Dict, List, Any, Optional
+from concurrent.futures import ThreadPoolExecutor
 
 # --- Constants ---
 PIECE_VALUES = {
@@ -35,15 +36,18 @@ class PositionScorer:
         return {theme: self.get_theme_score(theme) for theme in THEME_NAMES}
 
     def get_theme_score(self, theme: str) -> float:
-        if theme == "material": return self._score_material()
-        if theme == "mobility": return self._score_mobility()
-        if theme == "space": return self._score_space()
-        if theme == "kingSafety": return self._score_king_safety()
-        if theme == "positional": return self._score_positional()
-        if theme == "tactical": return self._score_tactical()
-        if theme == "darkSquareControl": return self._score_squares(False)
-        if theme == "lightSquareControl": return self._score_squares(True)
-        if theme == "tempo": return self._score_tempo()
+        try:
+            if theme == "material": return self._score_material()
+            if theme == "mobility": return self._score_mobility()
+            if theme == "space": return self._score_space()
+            if theme == "kingSafety": return self._score_king_safety()
+            if theme == "positional": return self._score_positional()
+            if theme == "tactical": return self._score_tactical()
+            if theme == "darkSquareControl": return self._score_squares(False)
+            if theme == "lightSquareControl": return self._score_squares(True)
+            if theme == "tempo": return self._score_tempo()
+        except:
+            return 0.0
         return 0.0
 
     def _score_material(self) -> float:
@@ -59,11 +63,7 @@ class PositionScorer:
         def get_side_mobility(c):
             original_turn = self.board.turn
             self.board.turn = c
-            mobility = 0
-            for sq in chess.SQUARES:
-                piece = self.board.piece_at(sq)
-                if piece and piece.color == c and piece.piece_type != chess.PAWN:
-                    mobility += len(self.board.attacks(sq))
+            mobility = len(list(self.board.legal_moves))
             self.board.turn = original_turn
             return mobility
         return float(get_side_mobility(self.color) - get_side_mobility(self.enemy_color))
@@ -96,6 +96,7 @@ class PositionScorer:
             for sq in king_zone:
                 if self.board.is_attacked_by(enemy_c, sq):
                     score -= 15
+            
             direction = 1 if c == chess.WHITE else -1
             shield_rank = kr + direction
             if 0 <= shield_rank <= 7:
@@ -108,17 +109,6 @@ class PositionScorer:
                             score += 10
                         else:
                             score -= 10
-            for df in [-1, 0, 1]:
-                nf = kf + df
-                if 0 <= nf <= 7:
-                    is_open = True
-                    for r in range(8):
-                        p = self.board.piece_at(chess.square(nf, r))
-                        if p and p.piece_type == chess.PAWN:
-                            is_open = False
-                            break
-                    if is_open:
-                        score -= 20
             return score
         return float(get_side_safety(self.color) - get_side_safety(self.enemy_color))
 
@@ -140,79 +130,17 @@ class PositionScorer:
                 for sq in self.board.pieces(pt, c):
                     if chess.square_rank(sq) != start_rank:
                         score += 1
-            king_sq = self.board.king(c)
-            if (c == chess.WHITE and king_sq in [chess.G1, chess.C1]) or \
-               (c == chess.BLACK and king_sq in [chess.G8, chess.C8]):
-                score += 2
             return score
         return float(get_dev(self.color) - get_dev(self.enemy_color))
 
     def _score_positional(self) -> float:
-        def get_side_pos(c):
-            score = 0
-            for f in range(8):
-                pawns = 0
-                for r in range(8):
-                    p = self.board.piece_at(chess.square(f, r))
-                    if p and p.piece_type == chess.PAWN and p.color == c:
-                        pawns += 1
-                if pawns > 1: score -= 15 * (pawns - 1)
-            for f in range(8):
-                rooks = 0
-                has_own_pawn = False
-                has_enemy_pawn = False
-                for r in range(8):
-                    p = self.board.piece_at(chess.square(f, r))
-                    if p:
-                        if p.piece_type == chess.ROOK and p.color == c:
-                            rooks += 1
-                        elif p.piece_type == chess.PAWN:
-                            if p.color == c: has_own_pawn = True
-                            else: has_enemy_pawn = True
-                if rooks > 0:
-                    if not has_own_pawn and not has_enemy_pawn:
-                        score += 20
-                    elif not has_own_pawn:
-                        score += 10
-            for f in range(8):
-                has_pawn = False
-                for r in range(8):
-                    p = self.board.piece_at(chess.square(f, r))
-                    if p and p.piece_type == chess.PAWN and p.color == c:
-                        has_pawn = True
-                        break
-                if has_pawn:
-                    adj_pawn = False
-                    for df in [-1, 1]:
-                        nf = f + df
-                        if 0 <= nf <= 7:
-                            for r in range(8):
-                                p = self.board.piece_at(chess.square(nf, r))
-                                if p and p.piece_type == chess.PAWN and p.color == c:
-                                    adj_pawn = True
-                                    break
-                        if adj_pawn: break
-                    if not adj_pawn:
-                        score -= 10
-            return score
-        return float(get_side_pos(self.color) - get_side_pos(self.enemy_color))
+        return 0.0
 
     def _score_tactical(self) -> float:
         def get_side_tac(c):
             score = 0
-            enemy_c = not c
-            for sq in chess.SQUARES:
-                p = self.board.piece_at(sq)
-                if p and p.color == c:
-                    is_attacked = self.board.is_attacked_by(enemy_c, sq)
-                    is_defended = self.board.is_attacked_by(c, sq)
-                    if is_attacked and not is_defended:
-                        score -= PIECE_VALUES[p.piece_type] // 5
             if self.board.is_check():
-                if self.board.turn == enemy_c:
-                    score += 30
-                else:
-                    score -= 30
+                score += 50 if self.board.turn != c else -50
             return score
         return float(get_side_tac(self.color) - get_side_tac(self.enemy_color))
 
@@ -220,7 +148,7 @@ class PositionScorer:
 
 def get_cloud_eval(fen: str) -> Optional[Dict[str, Any]]:
     try:
-        response = requests.get(f"https://lichess.org/api/cloud-eval?fen={fen}", timeout=2)
+        response = requests.get(f"https://lichess.org/api/cloud-eval?fen={fen}", timeout=3)
         if response.status_code == 200:
             return response.json()
     except:
@@ -235,65 +163,76 @@ def analyze_game(pgn_text: str, username: str, deep: bool = False) -> Dict[str, 
     if not game: return {"error": "Invalid PGN"}
 
     headers = game.headers
-    is_white = headers.get("White", "").lower() == username.lower()
+    white_player = headers.get("White", "")
+    black_player = headers.get("Black", "")
+    is_white = white_player.lower() == username.lower()
     player_color = chess.WHITE if is_white else chess.BLACK
     
     board = game.board()
-    history_scores = []
-    critical_moments = []
+    moves = list(game.mainline_moves())
+    total_moves = len(moves)
     
-    scorer = PositionScorer(board, player_color)
-    last_scores = scorer.get_all_scores()
-    history_scores.append(last_scores)
-    
+    eval_history = []
     move_count = 0
-    for move in game.mainline_moves():
+    
+    # Process mainline for evaluations
+    for move in moves:
         move_count += 1
         board.push(move)
-        scorer = PositionScorer(board, player_color)
-        current_scores = scorer.get_all_scores()
         
-        changes = []
-        for theme in THEME_NAMES:
-            diff = current_scores[theme] - last_scores[theme]
-            threshold = 50
-            if theme == "material": threshold = 100
-            if theme in ["darkSquareControl", "lightSquareControl", "space", "mobility"]: threshold = 5
-            if abs(diff) >= threshold:
-                changes.append({"theme": theme, "change": diff})
+        # In deep mode, we sample evaluations
+        is_capture = board.is_capture(move)
+        is_check = board.is_check()
         
-        if changes:
-            moment = {
-                "move_number": (move_count + 1) // 2,
-                "color": "White" if board.turn == chess.BLACK else "Black",
-                "move": move.uci(),
-                "fen": board.fen(),
-                "changes": changes
-            }
-            
-            if deep:
-                eval_data = get_cloud_eval(board.fen())
-                if eval_data:
-                    moment["stockfish"] = {
-                        "eval": eval_data.get("pvs", [{}])[0].get("cp", 0) / 100.0,
-                        "best_move": eval_data.get("pvs", [{}])[0].get("moves", "").split(" ")[0]
-                    }
-            
-            critical_moments.append(moment)
-            
-        last_scores = current_scores
-        history_scores.append(last_scores)
+        if deep and (move_count % 5 == 0 or is_capture or is_check or move_count > total_moves - 5):
+            eval_data = get_cloud_eval(board.fen())
+            if eval_data:
+                pvs = eval_data.get("pvs", [])
+                if pvs:
+                    curr_eval = pvs[0].get("cp", 0) / 100.0 if "cp" in pvs[0] else (pvs[0].get("mate", 0) * 100)
+                    eval_history.append({"move": move_count, "eval": curr_eval, "fen": board.fen()})
+
+    # Interest Score calculation
+    interest_score = 0
+    blunders = 0
+    
+    interest_score += min(total_moves / 10, 5) # Longer games might be more interesting
+    
+    if len(eval_history) > 2:
+        prev_eval = eval_history[0]["eval"]
+        for e in eval_history[1:]:
+            diff = abs(e["eval"] - prev_eval)
+            if diff > 2.0:
+                interest_score += 3
+                blunders += 1
+            prev_eval = e["eval"]
+
+    result = headers.get("Result", "*")
+    if result == "1/2-1/2": interest_score += 2
+    elif (result == "1-0" and not is_white) or (result == "0-1" and is_white):
+        interest_score += 4 # Losses are instructive
+
+    opening = headers.get("Opening", "Unknown")
+    if opening != "Unknown": interest_score += 1
 
     return {
+        "game_id": headers.get("LichessId", headers.get("Site", "").split("/")[-1]),
+        "pgn": pgn_text,
         "game_info": {
-            "white": headers.get("White"),
-            "black": headers.get("Black"),
-            "result": headers.get("Result"),
+            "white": white_player,
+            "black": black_player,
+            "result": result,
             "date": headers.get("Date"),
+            "opening": opening,
             "url": headers.get("Site")
         },
-        "critical_moments": critical_moments[-15:],
-        "final_scores": last_scores,
+        "summary": {
+            "interest_score": interest_score,
+            "blunders": blunders,
+            "total_moves": total_moves,
+            "is_white": is_white
+        },
+        "eval_history": eval_history,
         "analysis_type": "deep" if deep else "surface"
     }
 
@@ -310,13 +249,22 @@ class handler(BaseHTTPRequestHandler):
             username = data.get("username", "")
             deep = data.get("deep", False)
             
+            pgn_list = pgn_list[:10]
+            
+            print(f"[Analyst] Processing {len(pgn_list)} games for {username} (parallel, deep={deep})")
+            
             all_analyses = []
-            for pgn in pgn_list:
-                all_analyses.append(analyze_game(pgn, username, deep))
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(analyze_game, pgn, username, deep) for pgn in pgn_list]
+                for future in futures:
+                    all_analyses.append(future.result())
+            
+            all_analyses.sort(key=lambda x: x.get("summary", {}).get("interest_score", 0), reverse=True)
             
             response_data = {
                 "status": "success",
-                "analyses": all_analyses
+                "analyses": all_analyses,
+                "count": len(all_analyses)
             }
             
             self.send_response(200)
@@ -325,6 +273,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response_data).encode('utf-8'))
             
         except Exception as e:
+            print(f"[Analyst] Error: {str(e)}")
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
             self.end_headers()

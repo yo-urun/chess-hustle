@@ -3,6 +3,8 @@
 import { fetchUserGames } from './lichess';
 import { Chess } from 'chess.js';
 import { getVerbalBoard } from '@/lib/chess-utils';
+import { callPythonAnalyst } from './python-analyst';
+import { saveAnalysis } from './analysis-db';
 
 export interface GameDeepData {
   id: string;
@@ -20,6 +22,49 @@ export interface GameDeepData {
   }[];
 }
 
+export async function runBatchAnalysis(
+  studentId: string,
+  username: string,
+  pgns: string[],
+  deep: boolean = true
+) {
+  // 1. Limit to 10 games
+  const batch = pgns.slice(0, 10);
+
+  console.log(`[runBatchAnalysis] Starting analysis for ${username}, ${batch.length} games`);
+
+  // 2. Call Python Analyst (which is now parallel)
+  const result = await callPythonAnalyst(batch, username, deep);
+
+  if (result.status !== 'success') {
+    throw new Error(result.error || 'Analysis failed');
+  }
+
+  const savedAnalyses = [];
+
+  // 3. Save each analysis to Supabase
+  for (const analysis of result.analyses) {
+    try {
+      const saved = await saveAnalysis({
+        student_id: studentId,
+        game_id: analysis.game_id,
+        pgn: analysis.pgn,
+        analysis_data: analysis,
+        report: `Interest Score: ${analysis.summary.interest_score}, Blunders: ${analysis.summary.blunders}`,
+        analysis_type: deep ? 'deep' : 'surface'
+      });
+      savedAnalyses.push(saved);
+    } catch (e) {
+      console.error(`[runBatchAnalysis] Failed to save analysis for game ${analysis.game_id}:`, e);
+    }
+  }
+
+  return {
+    count: savedAnalyses.length,
+    analyses: result.analyses
+  };
+}
+
 export async function collectStudentData(
   username: string, 
   options: { 
@@ -32,6 +77,7 @@ export async function collectStudentData(
 ) {
   const rawGames = await fetchUserGames(username, options);
   const processedData: GameDeepData[] = [];
+...
 
   for (const g of rawGames) {
     if (!g.analysis) continue; // Нам нужны только проанализированные партии
