@@ -4,6 +4,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 import os
 import io
+import requests
 from typing import Dict, List, Any, Optional
 
 # --- Constants ---
@@ -215,9 +216,20 @@ class PositionScorer:
             return score
         return float(get_side_tac(self.color) - get_side_tac(self.enemy_color))
 
+# --- Lichess Cloud Eval ---
+
+def get_cloud_eval(fen: str) -> Optional[Dict[str, Any]]:
+    try:
+        response = requests.get(f"https://lichess.org/api/cloud-eval?fen={fen}", timeout=2)
+        if response.status_code == 200:
+            return response.json()
+    except:
+        pass
+    return None
+
 # --- Analysis Engine ---
 
-def analyze_game(pgn_text: str, username: str) -> Dict[str, Any]:
+def analyze_game(pgn_text: str, username: str, deep: bool = False) -> Dict[str, Any]:
     pgn = io.StringIO(pgn_text)
     game = chess.pgn.read_game(pgn)
     if not game: return {"error": "Invalid PGN"}
@@ -251,13 +263,23 @@ def analyze_game(pgn_text: str, username: str) -> Dict[str, Any]:
                 changes.append({"theme": theme, "change": diff})
         
         if changes:
-            critical_moments.append({
+            moment = {
                 "move_number": (move_count + 1) // 2,
                 "color": "White" if board.turn == chess.BLACK else "Black",
                 "move": move.uci(),
                 "fen": board.fen(),
                 "changes": changes
-            })
+            }
+            
+            if deep:
+                eval_data = get_cloud_eval(board.fen())
+                if eval_data:
+                    moment["stockfish"] = {
+                        "eval": eval_data.get("pvs", [{}])[0].get("cp", 0) / 100.0,
+                        "best_move": eval_data.get("pvs", [{}])[0].get("moves", "").split(" ")[0]
+                    }
+            
+            critical_moments.append(moment)
             
         last_scores = current_scores
         history_scores.append(last_scores)
@@ -271,7 +293,8 @@ def analyze_game(pgn_text: str, username: str) -> Dict[str, Any]:
             "url": headers.get("Site")
         },
         "critical_moments": critical_moments[-15:],
-        "final_scores": last_scores
+        "final_scores": last_scores,
+        "analysis_type": "deep" if deep else "surface"
     }
 
 # --- Vercel Handler ---
@@ -285,10 +308,11 @@ class handler(BaseHTTPRequestHandler):
             data = json.loads(post_data)
             pgn_list = data.get("pgns", [])
             username = data.get("username", "")
+            deep = data.get("deep", False)
             
             all_analyses = []
             for pgn in pgn_list:
-                all_analyses.append(analyze_game(pgn, username))
+                all_analyses.append(analyze_game(pgn, username, deep))
             
             response_data = {
                 "status": "success",

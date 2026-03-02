@@ -42,6 +42,7 @@ export async function saveAnalysis(data: {
   pgn: string;
   analysis_data: any;
   report: string;
+  analysis_type?: 'deep' | 'surface';
 }) {
   const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();

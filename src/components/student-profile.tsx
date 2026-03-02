@@ -39,6 +39,7 @@ export function StudentProfile() {
   const [perfType, setPerfType] = useState<string>("blitz")
   const [maxGames, setMaxGames] = useState<number>(20)
   const [color, setColor] = useState<"white" | "black" | "all">("all")
+  const [isDeepAnalysis, setIsDeepAnalysis] = useState(false)
   
   // Studio states
   const [isCreatingStudio, setIsCreatingStudio] = useState(false)
@@ -87,7 +88,7 @@ export function StudentProfile() {
       const pgns = deepData.map(g => g.pgn).filter(Boolean);
       
       // Вызываем Python-аналитика (теперь только для расчетов)
-      const result = await callPythonAnalyst(pgns, selectedStudent.nickname);
+      const result = await callPythonAnalyst(pgns, selectedStudent.nickname, isDeepAnalysis);
       
       // Генерируем отчет через Ollama/Gemini Cloud (как настроено в профиле)
       // Передаем true для использования промпта под 9 параметров
@@ -99,7 +100,8 @@ export function StudentProfile() {
         student_id: selectedStudent.id,
         pgn: pgns.join('\n\n'),
         analysis_data: result.analyses,
-        report: report
+        report: report,
+        analysis_type: isDeepAnalysis ? 'deep' : 'surface'
       });
 
       loadSavedAnalyses();
@@ -251,15 +253,33 @@ export function StudentProfile() {
             <h2 className="text-xl font-bold">Python Аналитик (9 параметров)</h2>
           </div>
           <p className="text-sm text-[#888] leading-relaxed">
-            Глубокий анализ по 9 шахматным параметрам (материал, пространство, безопасность короля и др.) с использованием LLM.
+            Анализ по 9 шахматным параметрам (материал, пространство, безопасность короля и др.) с использованием LLM.
           </p>
+          
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-[#1f1f1f] border border-[#333]">
+            <input
+              type="checkbox"
+              id="deep-analysis-toggle"
+              checked={isDeepAnalysis}
+              onChange={(e) => setIsDeepAnalysis(e.target.checked)}
+              className="w-4 h-4 rounded border-white/10 bg-white/5 text-[#4fc3f7] focus:ring-[#4fc3f7]"
+            />
+            <Label htmlFor="deep-analysis-toggle" className="text-xs text-[#888] cursor-pointer hover:text-[#e0e0e0] flex-1">
+              Глубокий анализ (Lichess Cloud Eval)
+            </Label>
+          </div>
+
           <button
             onClick={handlePythonAnalysis}
             disabled={!deepData || isAIAnalyzing}
-            className="mt-auto flex items-center justify-center gap-2 bg-[#1f1f1f] border border-[#333] hover:border-[#4fc3f7] py-4 rounded-2xl text-sm font-bold transition-all disabled:opacity-30"
+            className={`mt-auto flex items-center justify-center gap-2 py-4 rounded-2xl text-sm font-bold transition-all disabled:opacity-30 ${
+              isDeepAnalysis
+                ? 'bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/30 text-purple-400 hover:border-purple-500/50'
+                : 'bg-[#1f1f1f] border border-[#333] hover:border-[#4fc3f7] text-[#e0e0e0]'
+            }`}
           >
             {isAIAnalyzing ? <Loader2 className="w-4 h-4 animate-spin text-[#4fc3f7]" /> : <Sparkles className="w-4 h-4 text-[#4fc3f7]" />}
-            {isAIAnalyzing ? 'Анализирую...' : 'Запустить Python-мозг'}
+            {isAIAnalyzing ? 'Анализирую...' : isDeepAnalysis ? 'Запустить Глубокий Анализ' : 'Запустить Поверхностный Анализ'}
           </button>
         </div>
 
@@ -302,15 +322,26 @@ export function StudentProfile() {
             <Clock className="w-4 h-4" /> Предыдущие анализы
           </h3>
           <div className="grid grid-cols-1 gap-3">
-            {savedAnalyses.map((analysis) => (
-              <div 
-                key={analysis.id} 
-                className="bg-[#2a2a2a] border border-[#333] p-4 rounded-2xl hover:border-[#4fc3f7]/30 cursor-pointer transition-all"
+            {savedAnalyses.map((analysis: any) => (
+              <div
+                key={analysis.id}
+                className="bg-[#2a2a2a] border border-[#333] p-4 rounded-2xl hover:border-[#4fc3f7]/30 cursor-pointer transition-all group"
                 onClick={() => setAiReport(analysis.report)}
               >
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium">Анализ от {new Date(analysis.created_at).toLocaleString()}</span>
-                  <ChevronRight className="w-4 h-4 text-[#666]" />
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-medium">Анализ от {new Date(analysis.created_at).toLocaleString()}</span>
+                    {analysis.analysis_type && (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                        analysis.analysis_type === 'deep'
+                          ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                          : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                      }`}>
+                        {analysis.analysis_type === 'deep' ? 'Глубокий' : 'Поверхностный'}
+                      </span>
+                    )}
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-[#666] group-hover:text-[#4fc3f7] transition-colors" />
                 </div>
               </div>
             ))}

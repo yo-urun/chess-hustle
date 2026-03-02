@@ -1,3 +1,2 @@
 python-chess
-google-generativeai
-supabase
+requests
