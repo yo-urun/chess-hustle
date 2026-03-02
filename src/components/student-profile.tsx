@@ -43,26 +43,24 @@ export function StudentProfile() {
       const chess = new Chess();
       // 1. Пытаемся загрузить как есть
       let loaded = false;
-      try { loaded = chess.load(cleanFen); } catch(e) {}
+      try { 
+        chess.load(cleanFen); 
+        loaded = true;
+      } catch(e) {}
 
       if (loaded) {
         setCurrentFen(cleanFen);
       } else {
         // 2. Если не вышло (битая рокировка или счетчики), берем только часть с доской
-        // FEN состоит из 6 частей, разделенных пробелом. Первая - сама позиция.
         const boardPart = cleanFen.split(' ')[0];
-        // Достраиваем минимально валидный хвост (белые ходят, нет рокировок, нет взятия на проходе, 0 1)
         const fallbackFen = `${boardPart} w - - 0 1`;
         
         try {
-          if (chess.load(fallbackFen)) {
-            console.warn("Using fallback FEN (only board part):", fallbackFen);
-            setCurrentFen(fallbackFen);
-          } else {
-            // Если и это не помогло - передаем как есть, Chessground может съесть то, что не ест chess.js
-            setCurrentFen(cleanFen);
-          }
+          chess.load(fallbackFen);
+          console.warn("Using fallback FEN (only board part):", fallbackFen);
+          setCurrentFen(fallbackFen);
         } catch(e) {
+          // Если и это не помогло - передаем как есть
           setCurrentFen(cleanFen);
         }
       }
