@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -24,7 +24,7 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
           response = NextResponse.next({
@@ -44,20 +44,16 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Защищённые пути
-  const protectedPaths = ['/', '/students', '/settings'];
-  const isProtected = protectedPaths.some((path) =>
+  const isProtected = ['/', '/students', '/settings'].some((path) =>
     request.nextUrl.pathname === path || request.nextUrl.pathname.startsWith(path + '/')
   );
 
-  // Если путь защищен и пользователь не авторизован — редирект на /login
   if (isProtected && !user && request.nextUrl.pathname !== '/login') {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
-  // Если пользователь авторизован и пытается зайти на /login — редирект на главную
   if (user && request.nextUrl.pathname === '/login') {
     const url = request.nextUrl.clone();
     url.pathname = '/';
@@ -67,15 +63,11 @@ export async function middleware(request: NextRequest) {
   return response;
 }
 
+// Экспорт по умолчанию для совместимости
+export default proxy;
+
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public (public files like robots.txt, etc.)
-     */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
