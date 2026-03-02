@@ -3,76 +3,54 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { crypto } from 'node:crypto';
 
 export async function signInWithLichess() {
   const cookieStore = await cookies();
   const headerList = await headers();
+  
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Supabase configuration missing on server');
+  }
+
   const host = headerList.get('host');
   const protocol = host?.includes('localhost') ? 'http' : 'https';
-  
-  // Важно: убираем лишние слеши и приводим к точному соответствию
   const redirectUri = `${protocol}://${host}/auth/callback`;
-  
-  console.log('--- AUTH DEBUG ---');
-  console.log('Host:', host);
-  console.log('Redirect URI:', redirectUri);
-  console.log('------------------');
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {}
-        },
-      },
-    }
-  );
+  const codeVerifier = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  const codeChallenge = Buffer.from(
+    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier))
+  ).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-  // Генерация длинного code_verifier (минимум 43 символа)
-  const codeVerifier = Array.from(crypto.getRandomValues(new Uint8Array(64)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-    
-  const codeChallenge = await crypto.subtle
-    .digest('SHA-256', new TextEncoder().encode(codeVerifier))
-    .then((buf) =>
-      btoa(String.fromCharCode(...new Uint8Array(buf)))
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=/g, '')
-    );
+  const state = Math.random().toString(36).substring(2, 15);
 
-  const state = crypto.randomUUID();
-
-  cookieStore.set('pkce_code_verifier', codeVerifier, {
-    httpOnly: true,
+  cookieStore.set('pkce_code_verifier', codeVerifier, { 
+    httpOnly: true, 
+    secure: protocol === 'https',
     path: '/',
-    maxAge: 60 * 10,
-    secure: process.env.NODE_ENV === 'production',
+    maxAge: 60 * 10 // 10 минут
   });
-  cookieStore.set('pkce_state', state, {
-    httpOnly: true,
+  
+  cookieStore.set('pkce_state', state, { 
+    httpOnly: true, 
+    secure: protocol === 'https',
     path: '/',
-    maxAge: 60 * 10,
-    secure: process.env.NODE_ENV === 'production',
+    maxAge: 60 * 10
   });
 
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: process.env.NEXT_PUBLIC_LICHESS_CLIENT_ID || 'chesscoachai',
     redirect_uri: redirectUri,
-    scope: 'email:read board:play', // Добавили board:play для доступа к анализу
+    scope: 'email:read board:play',
     state,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
   });
 
+  console.log('Redirecting to Lichess with URI:', redirectUri);
   redirect(`https://lichess.org/oauth/authorize?${params.toString()}`);
 }
