@@ -2,8 +2,11 @@
 
 import { useEffect, useRef } from "react"
 import { Chessground } from "chessground"
+
+// Базовые стили библиотеки
 import "chessground/assets/chessground.base.css"
 import "chessground/assets/chessground.brown.css"
+import "chessground/assets/chessground.cwhite.css"
 
 interface LichessBoardProps {
   fen: string
@@ -14,78 +17,88 @@ export function LichessBoard({ fen, orientation = "white" }: LichessBoardProps) 
   const containerRef = useRef<HTMLDivElement>(null)
   const cgRef = useRef<any>(null)
 
-  const initialFen = fen === "start" ? "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" : fen;
-
+  // Первичная инициализация
   useEffect(() => {
-    if (containerRef.current) {
-      // Инициализация Chessground
+    if (containerRef.current && !cgRef.current) {
       cgRef.current = Chessground(containerRef.current, {
-        fen: initialFen,
+        fen: fen === "start" ? "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" : fen,
         orientation: orientation,
         viewOnly: true,
         coordinates: true,
         animation: {
           enabled: true,
-          duration: 250
-        }
+          duration: 300
+        },
+        premovable: { enabled: false },
+        drawable: { enabled: true }
       })
     }
 
     return () => {
       if (cgRef.current) {
         cgRef.current.destroy()
+        cgRef.current = null
       }
     }
   }, [])
 
-  // Синхронизация при изменении пропсов
+  // Обновление при изменении FEN или ориентации
   useEffect(() => {
     if (cgRef.current) {
-      const currentPos = fen === "start" ? "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" : fen;
       cgRef.current.set({
-        fen: currentPos,
+        fen: fen === "start" ? "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" : fen,
         orientation: orientation
-      });
+      })
       
-      // Принудительный перерасчет размеров
-      setTimeout(() => {
-        if (cgRef.current) cgRef.current.redrawAll();
-      }, 30);
+      // Даем браузеру время на отрисовку и пересчитываем размеры
+      requestAnimationFrame(() => {
+        if (cgRef.current) cgRef.current.redrawAll()
+      })
     }
   }, [fen, orientation])
 
   return (
-    <div className="lichess-board-container w-full aspect-square relative shadow-2xl rounded-sm overflow-hidden border-4 border-[#1f1f1f]">
+    <div className="lichess-board-wrapper w-full aspect-square bg-[#2a2a2a] rounded-sm shadow-2xl">
       <div 
-        key={fen}
         ref={containerRef} 
-        className="cg-wrap w-full h-full"
+        className="cg-wrap"
+        style={{ width: '100%', height: '100%' }}
       />
       <style jsx global>{`
         .cg-wrap {
           width: 100%;
           height: 100%;
-          position: relative;
           display: block;
+          position: relative;
         }
-        /* Подгружаем фигуры прямо с серверов Lichess */
-        .cg-wrap piece.pawn.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wP.svg'); }
-        .cg-wrap piece.knight.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wN.svg'); }
-        .cg-wrap piece.bishop.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wB.svg'); }
-        .cg-wrap piece.rook.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wR.svg'); }
-        .cg-wrap piece.queen.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wQ.svg'); }
-        .cg-wrap piece.king.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wK.svg'); }
-        .cg-wrap piece.pawn.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bP.svg'); }
-        .cg-wrap piece.knight.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bN.svg'); }
-        .cg-wrap piece.bishop.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bB.svg'); }
-        .cg-wrap piece.rook.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bR.svg'); }
-        .cg-wrap piece.queen.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bQ.svg'); }
-        .cg-wrap piece.king.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bK.svg'); }
         
+        /* ГАРАНТИРОВАННОЕ ПОДКЛЮЧЕНИЕ ФИГУР (Lichess Assets) */
+        .cg-wrap piece {
+          background-size: cover;
+          background-repeat: no-repeat;
+          width: 100%;
+          height: 100%;
+        }
+
+        .cg-wrap piece.pawn.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wP.svg') !important; }
+        .cg-wrap piece.knight.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wN.svg') !important; }
+        .cg-wrap piece.bishop.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wB.svg') !important; }
+        .cg-wrap piece.rook.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wR.svg') !important; }
+        .cg-wrap piece.queen.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wQ.svg') !important; }
+        .cg-wrap piece.king.white { background-image: url('https://lichess1.org/assets/piece/cwhite/wK.svg') !important; }
+        
+        .cg-wrap piece.pawn.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bP.svg') !important; }
+        .cg-wrap piece.knight.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bN.svg') !important; }
+        .cg-wrap piece.bishop.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bB.svg') !important; }
+        .cg-wrap piece.rook.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bR.svg') !important; }
+        .cg-wrap piece.queen.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bQ.svg') !important; }
+        .cg-wrap piece.king.black { background-image: url('https://lichess1.org/assets/piece/cwhite/bK.svg') !important; }
+
         .cg-wrap coords {
           color: #888;
           font-weight: bold;
           font-size: 12px;
+          text-shadow: 0 1px 2px rgba(0,0,0,0.5);
         }
       `}</style>
     </div>
