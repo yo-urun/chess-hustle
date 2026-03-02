@@ -77,7 +77,6 @@ export async function collectStudentData(
 ) {
   const rawGames = await fetchUserGames(username, options);
   const processedData: GameDeepData[] = [];
-...
 
   for (const g of rawGames) {
     if (!g.analysis) continue; // Нам нужны только проанализированные партии
