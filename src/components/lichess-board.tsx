@@ -24,7 +24,6 @@ export function LichessBoard({ fen, orientation = "white" }: LichessBoardProps) 
         orientation: orientation,
         viewOnly: true,
         coordinates: true,
-        resizable: true,
         animation: {
           enabled: true,
           duration: 250
