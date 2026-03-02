@@ -90,7 +90,8 @@ export function StudentProfile() {
       const result = await callPythonAnalyst(pgns, selectedStudent.nickname);
       
       // Генерируем отчет через Ollama/Gemini Cloud (как настроено в профиле)
-      const report = await generateCoachingReport(selectedStudent.nickname, result.analyses);
+      // Передаем true для использования промпта под 9 параметров
+      const report = await generateCoachingReport(selectedStudent.nickname, result.analyses, true);
       setAiReport(report);
 
       // Сохраняем в базу данных

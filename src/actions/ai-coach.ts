@@ -3,7 +3,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
-export async function generateCoachingReport(studentNickname: string, gamesData: any[]) {
+export async function generateCoachingReport(studentNickname: string, gamesData: any[], isPythonAnalysis: boolean = false) {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,39 +22,59 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
 
   if (!profile) throw new Error('Profile not found');
 
-  const prompt = `
-    Ты — элитный шахматный тренер. Твоя задача — проанализировать критические ошибки ученика ${studentNickname} на основе данных Stockfish.
-    
-    Для каждой ошибки тебе предоставлено:
-    - Текстовое описание доски (Board State) перед ошибкой.
-    - Список фигур (Pieces).
-    - Ход, который был сделан (Played).
-    - Лучший ход по мнению Stockfish (Best).
-    - Принципиальный вариант продолжения (PV) для лучшего хода.
-    
-    ДАННЫЕ ПАРТИЙ:
-    ${JSON.stringify(gamesData.map(g => ({
-      opponent: g.opponent,
-      result: g.result,
-      blunders: g.blunders.map((b: any) => ({
-        move: b.move,
-        board: b.boardDescription,
-        played: b.played,
-        best: b.best,
-        continuation: b.pv,
-        loss: (b.diff/100).toFixed(1)
-      }))
-    })), null, 2)}
+  let prompt = "";
 
-    ТВОЙ АНАЛИЗ (на русском языке):
-    1. Идентифицируй типичные тактические или стратегические пробелы (связки, зевки, вилки и т.д.).
-    2. Объясни ПРИЧИНУ 2-3 самых ярких ошибок. 
-       ВАЖНО: Когда ты ссылаешься на конкретную позицию или ход, ОБЯЗАТЕЛЬНО используй формат: [описание](pos:FEN), чтобы пользователь мог кликнуть и увидеть доску.
-       Пример: "Здесь ход [Кf3](pos:r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2) был бы лучше".
-    3. Дай конкретный план тренировок.
-    
-    Пиши профессионально, кратко и по делу. Не используй FEN вне формата [текст](pos:FEN).
-  `;
+  if (isPythonAnalysis) {
+    prompt = `
+      Ты — элитный шахматный тренер. Проанализируй игру ученика ${studentNickname}.
+      Я предоставляю тебе данные от Python-аналитика, который разложил партии на 9 параметров (материал, мобильность, пространство, безопасность короля, позиционные факторы, тактика, контроль полей, темп).
+      
+      ДАННЫЕ АНАЛИЗА:
+      ${JSON.stringify(gamesData, null, 2)}
+      
+      ТВОЯ ЗАДАЧА:
+      1. Проведи глубокий анализ игры, выделив сильные и слабые стороны ученика на основе 9 параметров.
+      2. Объясни причины изменений в критических моментах (critical_moments). Почему упала безопасность короля? Как было потеряно пространство?
+      3. Используй формат [описание](pos:FEN) для ссылок на позиции, чтобы ученик мог их посмотреть.
+      4. Дай конкретные рекомендации по улучшению игры.
+      5. Пиши на русском языке, профессионально, конструктивно и вдохновляюще.
+      6. В конце сделай резюме: над чем работать в первую очередь.
+    `;
+  } else {
+    prompt = `
+      Ты — элитный шахматный тренер. Твоя задача — проанализировать критические ошибки ученика ${studentNickname} на основе данных Stockfish.
+      
+      Для каждой ошибки тебе предоставлено:
+      - Текстовое описание доски (Board State) перед ошибкой.
+      - Список фигур (Pieces).
+      - Ход, который был сделан (Played).
+      - Лучший ход по мнению Stockfish (Best).
+      - Принципиальный вариант продолжения (PV) для лучшего хода.
+      
+      ДАННЫЕ ПАРТИЙ:
+      ${JSON.stringify(gamesData.map(g => ({
+        opponent: g.opponent,
+        result: g.result,
+        blunders: g.blunders.map((b: any) => ({
+          move: b.move,
+          board: b.boardDescription,
+          played: b.played,
+          best: b.best,
+          continuation: b.pv,
+          loss: (b.diff/100).toFixed(1)
+        }))
+      })), null, 2)}
+
+      ТВОЙ АНАЛИЗ (на русском языке):
+      1. Идентифицируй типичные тактические или стратегические пробелы (связки, зевки, вилки и т.д.).
+      2. Объясни ПРИЧИНУ 2-3 самых ярких ошибок. 
+         ВАЖНО: Когда ты ссылаешься на конкретную позицию или ход, ОБЯЗАТЕЛЬНО используй формат: [описание](pos:FEN), чтобы пользователь мог кликнуть и увидеть доску.
+         Пример: "Здесь ход [Кf3](pos:r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2) был бы лучше".
+      3. Дай конкретный план тренировок.
+      
+      Пиши профессионально, кратко и по делу. Не используй FEN вне ф��рмата [текст](pos:FEN).
+    `;
+  }
 
   if (profile.ai_provider === 'ollama') {
     const endpoint = profile.ollama_endpoint || "https://api.ollama.com/v1";
