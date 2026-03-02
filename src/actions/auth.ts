@@ -45,7 +45,7 @@ export async function signInWithLichess() {
     response_type: 'code',
     client_id: process.env.NEXT_PUBLIC_LICHESS_CLIENT_ID || 'chesscoachai',
     redirect_uri: redirectUri,
-    scope: 'email:read board:play',
+    scope: 'email:read board:play studio:read studio:write msg:write',
     state,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
