@@ -3,7 +3,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { crypto } from 'node:crypto';
 
 export async function signInWithLichess() {
   const cookieStore = await cookies();
