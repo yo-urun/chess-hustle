@@ -4,7 +4,7 @@
 
 ## Возможности
 - **Авторизация через Lichess (OAuth2 PKCE)**: Безопасный вход без пароля.
-- **Интеграция с Supabase**: Постоянное хранение списка учеников и настроек тренера.
+- **Интеграция с Supabase**: Постоянное хранение списка учен��ков и настроек тренера.
 - **Data Mining**: Сбор истории до 50 партий ученика одним кликом.
 - **Авто-детектор зевков**: Поиск критических ошибок на основе оценок Lichess Cloud Eval.
 - **ИИ-Стратег (Gemini-3 / Ollama)**: Генерация персонализированного плана тренировок на основе реальных ошибок.
@@ -46,23 +46,17 @@ CREATE TABLE IF NOT EXISTS public.students (
   UNIQUE(coach_id, nickname)
 );
 
+-- Таблица анализов
+CREATE TABLE IF NOT EXISTS public.analyses (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  student_id UUID REFERENCES public.students(id) ON DELETE CASCADE NOT NULL,
+  coach_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  game_id TEXT,
+  pgn TEXT NOT NULL,
+  analysis_data JSONB,
+  report TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Не забудьте настроить RLS политики!
 ```
-
-### 2. Переменные окружения (.env.local)
-```env
-NEXT_PUBLIC_SUPABASE_URL=ваш_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=ваш_ключ
-NEXT_PUBLIC_LICHESS_CLIENT_ID=ваш_id
-# Опционально (если хотите дефолтный ключ на сервере)
-GEMINI_API_KEY=ваш_ключ
-```
-
-### 3. Запуск
-```bash
-npm install
-npm run dev
-```
-
-## Лицензия
-MIT

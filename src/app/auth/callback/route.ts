@@ -6,6 +6,8 @@ export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get('code');
   const state = requestUrl.searchParams.get('state');
+  const error = requestUrl.searchParams.get('error');
+  const errorDescription = requestUrl.searchParams.get('error_description');
 
   const cookieStore = await cookies();
   const storedState = cookieStore.get('pkce_state')?.value;
@@ -15,15 +17,27 @@ export async function GET(request: NextRequest) {
   const redirectUri = new URL('/auth/callback', request.url).origin + '/auth/callback';
 
   if (!code || state !== storedState || !codeVerifier) {
-    console.error('PKCE Validation Failed:', {
+    const errorDetails = {
       hasCode: !!code,
       stateMatch: state === storedState,
       hasVerifier: !!codeVerifier,
       receivedState: state,
-      storedState: storedState
-    });
+      storedState: storedState || 'MISSING',
+      error: error,
+      errorDescription: errorDescription,
+      allCookies: cookieStore.getAll().map(c => c.name),
+      url: request.url
+    };
+    
+    console.error('PKCE Validation Failed:', errorDetails);
+    
     return new NextResponse(
-      `Ошибка PKCE: Параметры не совпадают. Проверьте, что вы используете один и тот же браузер. (Code: ${!!code}, State: ${state === storedState}, Verifier: ${!!codeVerifier})`,
+      `Ошибка авторизации Lichess / PKCE:
+      Браузер: ${request.headers.get('user-agent')}
+      Статус: Code=${!!code}, StateMatch=${state === storedState}, Verifier=${!!codeVerifier}
+      Lichess Error: ${error || 'none'}
+      Lichess Description: ${errorDescription || 'none'}
+      Детали: ${JSON.stringify(errorDetails, null, 2)}`,
       { status: 400 }
     );
   }

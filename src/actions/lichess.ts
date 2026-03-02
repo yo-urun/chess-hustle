@@ -35,7 +35,6 @@ async function getAccessToken(): Promise<string | null> {
             cookieStore.set(name, value, options)
           );
         } catch (e) {
-          // Ignore cookie errors during SSR/Server Actions
         }
       },
     },
@@ -54,79 +53,130 @@ async function getAccessToken(): Promise<string | null> {
 }
 
 export async function createLichessStudio(name: string): Promise<{ id: string }> {
-  const token = await getAccessToken();
-  if (!token) throw new Error('Token missing');
+  try {
+    const token = await getAccessToken();
+    if (!token) {
+      console.error('[createLichessStudio] Token missing');
+      throw new Error('Token missing');
+    }
 
-  const response = await fetch('https://lichess.org/api/studio', {
-    method: 'POST',
-    headers: { 
-      'Authorization': `Bearer ${token}`, 
-      'Content-Type': 'application/x-www-form-urlencoded' 
-    },
-    body: new URLSearchParams({ name })
-  });
-  
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Studio Error: ${err}`);
+    console.log('[createLichessStudio] POST https://lichess.org/api/study');
+
+    const response = await fetch('https://lichess.org/api/study', {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: new URLSearchParams({ name })
+    });
+    
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('[createLichessStudio] Lichess API error:', response.status, err);
+      throw new Error(`Study Error: ${err}`);
+    }
+    
+    const data = await response.json();
+    console.log('[createLichessStudio] Success:', data);
+    return data;
+  } catch (error: any) {
+    console.error('[createLichessStudio] Critical error:', error);
+    throw error;
   }
-  
-  return await response.json();
 }
 
 export async function importPgnToStudio(studioId: string, pgn: string, name: string): Promise<boolean> {
-  const token = await getAccessToken();
-  if (!token) throw new Error('Token missing');
+  try {
+    const token = await getAccessToken();
+    if (!token) throw new Error('Token missing');
 
-  const response = await fetch(`https://lichess.org/api/studio/${studioId}/import`, {
-    method: 'POST',
-    headers: { 
-      'Authorization': `Bearer ${token}`, 
-      'Content-Type': 'application/x-www-form-urlencoded' 
-    },
-    body: new URLSearchParams({ pgn, name })
-  });
-  
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Import Error: ${err}`);
+    const response = await fetch(`https://lichess.org/api/study/${studioId}/import`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: new URLSearchParams({ pgn, name })
+    });
+    
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('[importPgnToStudio] Lichess API error:', response.status, err);
+      throw new Error(`Import Error: ${err}`);
+    }
+    
+    return true;
+  } catch (error: any) {
+    console.error('[importPgnToStudio] Critical error:', error);
+    throw error;
   }
-  
-  return true;
 }
 
 export async function sendLichessMessage(username: string, text: string): Promise<boolean> {
-  const token = await getAccessToken();
-  if (!token) throw new Error('Token missing');
+  try {
+    const token = await getAccessToken();
+    if (!token) throw new Error('Token missing');
 
-  const response = await fetch(`https://lichess.org/api/msg/${username}`, {
-    method: 'POST',
-    headers: { 
-      'Authorization': `Bearer ${token}`, 
-      'Content-Type': 'application/x-www-form-urlencoded' 
-    },
-    body: new URLSearchParams({ text })
-  });
-  
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Message Error: ${err}`);
+    const response = await fetch(`https://lichess.org/api/msg/${username}`, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${token}`, 
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      body: new URLSearchParams({ text })
+    });
+    
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('[sendLichessMessage] Lichess API error:', response.status, err);
+      throw new Error(`Message Error: ${err}`);
+    }
+    
+    return true;
+  } catch (error: any) {
+    console.error('[sendLichessMessage] Critical error:', error);
+    throw error;
   }
-  
-  return true;
 }
 
-export async function fetchUserGames(username: string, options: { max: number; perfType: string }): Promise<LichessGame[]> {
+export async function fetchUserGames(
+  username: string, 
+  options: { 
+    max: number; 
+    perfType?: string; 
+    color?: 'white' | 'black';
+    since?: number;
+    until?: number;
+  }
+): Promise<LichessGame[]> {
   const token = await getAccessToken();
   
   const params = new URLSearchParams({
     max: options.max.toString(),
-    perfType: options.perfType,
     moves: 'true',
     evals: 'true',
     opening: 'true',
     pgnInJson: 'true'
   });
+
+  if (options.perfType && options.perfType !== 'all') {
+    params.append('perfType', options.perfType);
+  }
+  if (options.color) {
+    params.append('color', options.color);
+  }
+  if (options.since) {
+    params.append('since', options.since.toString());
+  }
+  if (options.until) {
+    params.append('until', options.until.toString());
+  }
+
+  console.log(`[fetchUserGames] GET https://lichess.org/api/games/user/${username}?${params.toString()}`);
 
   const response = await fetch(`https://lichess.org/api/games/user/${username}?${params.toString()}`, {
     headers: { 

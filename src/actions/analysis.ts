@@ -20,8 +20,17 @@ export interface GameDeepData {
   }[];
 }
 
-export async function collectStudentData(username: string, maxGames: number = 50) {
-  const rawGames = await fetchUserGames(username, { max: maxGames, perfType: 'blitz' });
+export async function collectStudentData(
+  username: string, 
+  options: { 
+    max: number; 
+    perfType?: string; 
+    color?: 'white' | 'black';
+    since?: number;
+    until?: number;
+  }
+) {
+  const rawGames = await fetchUserGames(username, options);
   const processedData: GameDeepData[] = [];
 
   for (const g of rawGames) {

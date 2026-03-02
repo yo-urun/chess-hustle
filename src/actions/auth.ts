@@ -28,9 +28,12 @@ export async function signInWithLichess() {
 
     const state = Math.random().toString(36).substring(2, 15);
 
+    // Для localhost secure должен быть false, иначе куки не сохранятся без HTTPS
+    const isLocalhost = host?.includes('localhost');
+
     cookieStore.set('pkce_code_verifier', codeVerifier, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: !isLocalhost,
       path: '/',
       sameSite: 'lax',
       maxAge: 60 * 10
@@ -38,7 +41,7 @@ export async function signInWithLichess() {
     
     cookieStore.set('pkce_state', state, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: !isLocalhost,
       path: '/',
       sameSite: 'lax',
       maxAge: 60 * 10
@@ -48,7 +51,7 @@ export async function signInWithLichess() {
       response_type: 'code',
       client_id: process.env.NEXT_PUBLIC_LICHESS_CLIENT_ID || 'chesscoachai',
       redirect_uri: redirectUri,
-      scope: 'email:read board:play studio:read studio:write msg:write',
+      scope: 'email:read board:play study:read study:write msg:write preference:read puzzle:read team:read',
       state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
