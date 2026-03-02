@@ -11,8 +11,11 @@ export async function signInWithLichess() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+  console.log('Auth Action: Supabase URL present:', !!supabaseUrl);
+  console.log('Auth Action: Supabase Key present:', !!supabaseKey);
+
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase configuration missing on server');
+    throw new Error(`Supabase configuration missing on server. URL: ${!!supabaseUrl}, Key: ${!!supabaseKey}`);
   }
 
   const host = headerList.get('host');
@@ -51,5 +54,8 @@ export async function signInWithLichess() {
   });
 
   console.log('Redirecting to Lichess with URI:', redirectUri);
-  redirect(`https://lichess.org/oauth/authorize?${params.toString()}`);
+  const authUrl = `https://lichess.org/oauth/authorize?${params.toString()}`;
+  console.log('Full Auth URL:', authUrl);
+  
+  redirect(authUrl);
 }
