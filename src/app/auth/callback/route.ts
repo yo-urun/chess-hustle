@@ -15,8 +15,15 @@ export async function GET(request: NextRequest) {
   const redirectUri = new URL('/auth/callback', request.url).origin + '/auth/callback';
 
   if (!code || state !== storedState || !codeVerifier) {
+    console.error('PKCE Validation Failed:', {
+      hasCode: !!code,
+      stateMatch: state === storedState,
+      hasVerifier: !!codeVerifier,
+      receivedState: state,
+      storedState: storedState
+    });
     return new NextResponse(
-      `Ошибка PKCE: Параметры не совпадают. Проверьте, что вы используете один и тот же браузер.`,
+      `Ошибка PKCE: Параметры не совпадают. Проверьте, что вы используете один и тот же браузер. (Code: ${!!code}, State: ${state === storedState}, Verifier: ${!!codeVerifier})`,
       { status: 400 }
     );
   }

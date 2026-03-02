@@ -30,7 +30,7 @@ export async function signInWithLichess() {
 
     cookieStore.set('pkce_code_verifier', codeVerifier, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       path: '/',
       sameSite: 'lax',
       maxAge: 60 * 10
@@ -38,7 +38,7 @@ export async function signInWithLichess() {
     
     cookieStore.set('pkce_state', state, {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === 'production',
       path: '/',
       sameSite: 'lax',
       maxAge: 60 * 10
