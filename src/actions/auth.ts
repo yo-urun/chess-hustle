@@ -1,6 +1,7 @@
 'use server';
 
 import { createServerClient } from '@supabase/ssr';
+import { createHash, randomBytes } from 'crypto';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
@@ -22,10 +23,10 @@ export async function signInWithLichess() {
   const protocol = host?.includes('localhost') ? 'http' : 'https';
   const redirectUri = `${protocol}://${host}/auth/callback`;
 
-  const codeVerifier = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-  const codeChallenge = Buffer.from(
-    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier))
-  ).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const codeVerifier = randomBytes(32).toString('base64url');
+  const codeChallenge = createHash('sha256')
+    .update(codeVerifier)
+    .digest('base64url');
 
   const state = Math.random().toString(36).substring(2, 15);
 
