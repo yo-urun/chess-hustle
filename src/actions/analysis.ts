@@ -5,7 +5,7 @@ import { callPythonAnalyst } from './python-analyst';
 import { updateGameTechnicalAnalysis } from './analysis-db';
 
 export interface PythonAnalysisResult {
-  game_id: string; // Новое местоположение ID
+  game_id: string;
   game_info: any;
   player_color: string;
   analysis_map: Record<string, any>;
@@ -21,26 +21,26 @@ export async function runBatchAnalysis(
   username: string,
   games: { pgn: string; lichess_id: string; evals?: any[] }[]
 ) {
-  const payload = games.map(g => ({ pgn: g.pgn, evals: g.evals }));
+  // Pass evals from browser to Python
+  const payload = games.map(g => ({ 
+    pgn: g.pgn, 
+    evals: g.evals // These might be from Lichess OR from Stockfish WASM
+  }));
+  
   const result = await callPythonAnalyst(payload, username);
 
   if (result.status !== 'success') {
     throw new Error(result.error || 'Analysis failed');
   }
 
-  // Обновляем базу данных для каждой партии
   for (const analysis of result.analyses) {
-    const gameId = analysis.game_id; // Берем ID напрямую из корня объекта
-    
-    if (gameId) {
+    const gameId = analysis.game_id;
+    if (gameId && gameId !== "unknown") {
       try {
         await updateGameTechnicalAnalysis(gameId, studentId, analysis);
-        console.log(`[runBatchAnalysis] Updated tech analysis for game: ${gameId}`);
       } catch (dbError) {
         console.error(`[runBatchAnalysis] DB Update Error for ${gameId}:`, dbError);
       }
-    } else {
-      console.warn(`[runBatchAnalysis] No game_id found in analysis result for user ${username}`);
     }
   }
 

@@ -1,2 +1,2 @@
-python-chess
-requests
+chess==1.10.0
+requests==2.31.0

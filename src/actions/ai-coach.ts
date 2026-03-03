@@ -22,40 +22,58 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
 
   if (!profile) throw new Error('Профиль тренера не найден');
 
-  const technicalSummary = gamesData.map(g => {
+  // Трансформация данных для LLM
+  // Мы берем сырой JSON от Python и превращаем его в читабельную сводку для LLM
+  const tacticalSummary = gamesData.map(g => {
+    // g - это PythonAnalysisResult
+    const stats = g.statistics || {};
+    const map = g.analysis_map || {};
     const info = g.game_info || {};
-    const stats = g.summary || {};
-    const evals = g.eval_history || [];
     
+    // Извлекаем только ключевые моменты
+    const moments = Object.values(map).filter((m: any) => 
+        m.severity === 'blunder' || 
+        m.opportunity === 'missed_win' || 
+        (m.tactics && m.tactics.length > 0) ||
+        m.tactic_type === 'sacrifice'
+    ).map((m: any) => {
+        return `Move ${m.move_number} (${m.color}): ${m.san}. Eval: ${m.eval}. 
+        ${m.tactics ? `Tactics: ${m.tactics.join(', ')}.` : ''} 
+        ${m.severity ? `Error: ${m.severity}.` : ''} 
+        ${m.opportunity ? `Missed: ${m.opportunity}.` : ''}
+        ${m.tactic_type === 'sacrifice' ? 'Sacrifice detected.' : ''}`;
+    });
+
     return {
-      game_id: g.game_id,
-      lichess_url: `https://lichess.org/${g.game_id}`,
-      opponent: info.white === studentNickname ? info.black : info.white,
-      result: info.result,
-      is_student_white: info.white === studentNickname,
-      stockfish_blunders_count: stats.blunders || 0,
-      evaluation_swings: evals.map((e: any) => `Move ${e.move}: ${e.eval.toFixed(1)}`).join(', ')
+      game: `${info.White} vs ${info.Black}`,
+      result: info.Result,
+      url: info.Site || info.url,
+      stats: stats,
+      key_moments: moments
     };
   });
 
   const prompt = `
-    ТЫ — ШАХМАТНЫЙ АНАЛИТИК. ТВОЯ ЗАДАЧА — СУХОЙ И ПРАВДИВЫЙ ОТЧЕТ ПО ПАРТИЯМ УЧЕНИКА ${studentNickname}.
+    ТЫ — ЭЛИТНЫЙ ШАХМАТНЫЙ ТРЕНЕР. ТВОЯ ЗАДАЧА — СУХОЙ И ПРАВДИВЫЙ ОТЧЕТ ПО ПАРТИЯМ УЧЕНИКА ${studentNickname}.
     
-    ЖЕСТКИЕ ПРАВИЛА:
-    1. ТЕМПЕРАТУРА АНАЛИЗА = 0. ЗАПРЕЩЕНО ГАЛЛЮЦИНИРОВАТЬ И ПРИДУМЫВАТЬ ФАКТЫ.
-    2. ЕСЛИ В ДАННЫХ ЕСТЬ "evaluation_swings" (РЕЗКИЕ ПЕРЕПАДЫ ОЦЕНКИ), ТЫ ОБЯЗАН ЭТО ОТМЕТИТЬ.
-    3. ЕСЛИ STOCKFISH ПОКАЗЫВАЕТ ПЛОХУЮ ОЦЕНКУ, ТЫ НЕ ИМЕЕШЬ ПРАВА ХВАЛИТЬ ИГРОКА.
-    4. ПИШИ КРАТКО, СУХО, ТОЛЬКО ПО ДАННЫМ STOCKFISH.
-    5. НЕ ИСПОЛЬЗУЙ Markdown (никаких #, ##, ***). Разделяй абзацы пустой строкой.
-    6. ОБЯЗАТЕЛЬНО УКАЗЫВАЙ ССЫЛКИ НА ПАРТИИ ПРИ РАЗБОРЕ ОШИБОК.
+    ИСТОЧНИК ИСТИНЫ: ДАННЫЕ STOCKFISH И PYTHON-CHESS.
+    Я даю тебе список партий с уже выявленными тактическими ошибками (fork, pin) и упущенными победами.
+    Твоя задача — не "искать" ошибки (они уже найдены), а ОБЪЯСНИТЬ их и дать ссылку.
 
-    ДАННЫЕ STOCKFISH:
-    ${JSON.stringify(technicalSummary, null, 2)}
+    ЖЕСТКИЕ ПРАВИЛА:
+    1. ТЕМПЕРАТУРА АНАЛИЗА = 0.
+    2. Если в данных написано "Fork detected", ты должен сказать: "На N ходу пропущена вилка".
+    3. Если "Missed Win", ты должен сказать: "Упущена победа".
+    4. ОБЯЗАТЕЛЬНО давай ссылки на партии.
+    5. Используй шахматную терминологию (связка, рентген, цугцванг), если она есть в данных (pin, x-ray).
+
+    ДАННЫЕ АНАЛИЗА:
+    ${JSON.stringify(tacticalSummary, null, 2)}
     
-    ФОРМАТ ОТЧЕТА:
-    - Краткая сводка результатов.
-    - Перечень критических ошибок со ссылками на партии Lichess.
-    - Вывод на основе цифр Stockfish.
+    СТРУКТУРА ОТЧЕТА:
+    1. Статистика (сколько зевков, сколько тактики).
+    2. Разбор конкретных ошибок (цитируй ходы и давай ссылки).
+    3. Рекомендация (например: "Решать задачи на связки").
   `;
 
   if (profile.ai_provider === 'ollama') {
@@ -69,7 +87,7 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     const body = isOpenAIStyle ? {
       model: profile.ollama_model || "gemini-3-flash-preview",
       messages: [{ role: "user", content: prompt }],
-      temperature: 0 // Нулевая температура для исключения галлюцинаций
+      temperature: 0 
     } : {
       model: profile.ollama_model || "gemini-3-flash-preview",
       prompt: prompt,
@@ -91,7 +109,7 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0 } // Нулевая температура
+        generationConfig: { temperature: 0 } 
       })
     });
 
