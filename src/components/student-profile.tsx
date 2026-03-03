@@ -102,23 +102,30 @@ export function StudentProfile() {
       }
 
       const data = await collectStudentData(selectedStudent.nickname, options);
-      
+      // Сохраняем загруженные партии в БД
       if (data.length > 0 && selectedStudent.id) {
-        const studentId = selectedStudent.id; // Type narrowing
-        await saveGamesBatch(data.map(g => ({
-          lichess_id: g.id,
-          student_id: studentId,
-          pgn: g.pgn,
-          metadata: {
-            opponent: g.opponent,
-            result: g.result,
-            blunders: g.blunders
-          }
-        })));
-        
-        const games = await getStudentGames(studentId);
-        setStoredGames(games);
+        const studentId = selectedStudent.id; 
+        try {
+          await saveGamesBatch(data.map(g => ({
+            lichess_id: g.id,
+            student_id: studentId,
+            pgn: g.pgn,
+            metadata: {
+              opponent: g.opponent,
+              result: g.result,
+              blunders: g.blunders
+            }
+          })));
+
+          const games = await getStudentGames(studentId);
+          setStoredGames(games);
+        } catch (dbError: any) {
+          console.error('[Database Error] Failed to save games:', dbError);
+          // Показываем предупреждение, но продолжаем работу (партии останутся в памяти для текущей сессии)
+          alert('Внимание: партии загружены из Lichess, но не удалось сохранить их в базу данных. Проверьте SQL-схему в Supabase.');
+        }
       }
+
       
       setDeepData(data);
     } catch (error: any) {
