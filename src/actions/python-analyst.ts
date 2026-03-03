@@ -2,26 +2,17 @@
 
 import { headers } from 'next/headers';
 
-export async function callPythonAnalyst(pgns: string[], username: string, deep: boolean = false) {
+export async function callPythonAnalyst(games: { pgn: string; evals?: any[] }[], username: string) {
   const headerList = await headers();
-  const host = headerList.get('x-forwarded-host') || headerList.get('host');
-  const protocol = headerList.get('x-forwarded-proto') || (host?.includes('localhost') ? 'http' : 'https');
+  const host = headerList.get('host');
+  const protocol = host?.includes('localhost') ? 'http' : 'https';
   
-  // ВАЖНО: На Vercel NEXT_PUBLIC_APP_URL может быть не задан, используем host
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `${protocol}://${host}`;
-  const apiUrl = `${baseUrl}/api/analyst`;
-
-  console.log(`[callPythonAnalyst] Calling ${apiUrl} for ${username} (deep=${deep})`);
-
-  const response = await fetch(apiUrl, {
+  const response = await fetch(`${protocol}://${host}/api/analyst`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      pgns,
-      username,
-      deep
+      games,
+      username
     }),
   });
 
