@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { useApp } from "@/lib/context/app-context"
+import { Chess } from "chess.js"
 import {
   ArrowLeft,
   ExternalLink,
@@ -37,6 +38,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { StockfishEngine } from "@/lib/stockfish-engine"
 
 export function StudentProfile() {
   const { selectedStudent, selectStudent } = useApp()
@@ -57,10 +59,17 @@ export function StudentProfile() {
   const [maxGames, setMaxGames] = useState<number>(20)
   const [studioUrl, setStudioUrl] = useState<string | null>(null)
 
+  // Engine ref to avoid re-creation
+  const engineRef = useRef<StockfishEngine | null>(null);
+
   useEffect(() => {
     if (selectedStudent) {
       loadInitialData();
     }
+    return () => {
+      engineRef.current?.terminate();
+      engineRef.current = null;
+    };
   }, [selectedStudent]);
 
   const loadInitialData = async () => {
@@ -80,7 +89,7 @@ export function StudentProfile() {
     }
   };
 
-  // Умная фильтрация с фолбеками для старых данных
+  // Профессиональная фильтрация: опираемся на ТОЧНЫЕ метаданные
   const filteredGames = useMemo(() => {
     if (!storedGames) return [];
     
@@ -89,11 +98,11 @@ export function StudentProfile() {
       const gPerf = (g.metadata?.perf_type || "").toLowerCase();
       const matchesPerf = perfType === "all" || gPerf === perfType || gPerf === "";
 
-      // 2. Фильтр по цвету
+      // 2. Фильтр по цвету (ищем никнейм в PGN)
       const isWhite = g.pgn.includes(`[White "${selectedStudent?.nickname}"]`);
       const matchesColor = colorFilter === "all" || (colorFilter === "white" && isWhite) || (colorFilter === "black" && !isWhite);
       
-      // 3. Фильтр по результату
+      // 3. Фильтр по результату (из метаданных)
       const res = (g.metadata?.result || "").toLowerCase();
       const matchesResult = resultFilter === "all" || resultFilter === res;
       
@@ -145,7 +154,7 @@ export function StudentProfile() {
         const updatedGames = await getStudentGames(selectedStudent.id);
         setStoredGames(updatedGames);
       } else {
-        alert('Новых партий не найдено.');
+        alert('По вашему запросу новых партий не найдено.');
       }
     } catch (error: any) {
       alert('Ошибка Lichess: ' + error.message);
@@ -157,19 +166,55 @@ export function StudentProfile() {
   const handleTechnicalPrep = async () => {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
     setIsTechnicalAnalyzing(true);
+    
+    // Initialize engine if not exists
+    if (!engineRef.current) {
+      engineRef.current = new StockfishEngine();
+    }
+
     try {
+      // Берем партии, у которых еще нет тех. анализа
       const toAnalyze = deepData.filter(g => !g.technicalAnalysis).slice(0, 10);
+      
       if (toAnalyze.length === 0) {
-        alert('Выбранные партии уже подготовлены.');
+        alert('Все выбранные партии уже подготовлены.');
+        setIsTechnicalAnalyzing(false);
         return;
       }
-      const payload = toAnalyze.map(g => ({ pgn: g.pgn, lichess_id: g.id, evals: g.evals }));
-      const results = await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, payload);
-      
-      console.log(`[TechnicalPrep] Successfully processed ${results.length} games`);
+
+      const analyzedGames = [];
+
+      for (const game of toAnalyze) {
+        const chess = new Chess();
+        chess.loadPgn(game.pgn);
+        const moves = chess.history();
+        const evals: any[] = [];
+        
+        // Reset board for step-by-step analysis
+        chess.reset();
+        
+        for (let i = 0; i < moves.length; i++) {
+          chess.move(moves[i]);
+          // Анализируем каждые 4 хода или последние 10 ходов
+          if (i % 4 === 0 || i > moves.length - 10) {
+            const result = await engineRef.current.evaluateFen(chess.fen(), 12);
+            if (result.cp !== undefined || result.mate !== undefined) {
+              evals.push({
+                move: i + 1,
+                eval: result.cp ?? (result.mate! * 1000),
+                bestMove: result.bestMove
+              });
+            }
+          }
+        }
+        analyzedGames.push({ ...game, evals: [...game.evals, ...evals] });
+      }
+
+      const results = await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedGames);
       
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
+      alert(`Подготовка данных (Stockfish WASM) завершена для ${results.length} партий.`);
     } catch (error: any) {
       alert('Ошибка подготовки: ' + error.message);
     } finally {
@@ -184,7 +229,7 @@ export function StudentProfile() {
     const readyGames = deepData.filter(g => g.technicalAnalysis).map(g => g.technicalAnalysis);
     
     if (readyGames.length === 0) {
-      alert('Нет подготовленных данных в текущей выборке! Сначала нажмите кнопку "Подготовка".');
+      alert('Нет подготовленных данных! Сначала запустите "Подготовку данных".');
       return;
     }
 
@@ -237,6 +282,7 @@ export function StudentProfile() {
         </div>
       </div>
 
+      {/* Filter Panel */}
       <div className="bg-[#1a1a1a] border border-[#333] p-6 rounded-3xl shadow-xl flex flex-col gap-6 border-b-4 border-b-[#4fc3f7]/20">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="space-y-2">
@@ -313,6 +359,7 @@ export function StudentProfile() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Table Area */}
         <div className="lg:col-span-1 bg-[#1a1a1a] border border-[#333] rounded-3xl overflow-hidden flex flex-col max-h-[600px] shadow-2xl">
           <div className="p-4 border-b border-[#222] bg-[#111]/50 flex justify-between items-center">
             <span className="text-[10px] font-black uppercase text-[#666] tracking-widest">Выборка</span>
@@ -342,6 +389,7 @@ export function StudentProfile() {
           </div>
         </div>
 
+        {/* Report Area */}
         <div className="lg:col-span-2 space-y-6">
           {aiReport ? (
             <div className="bg-[#1a1a1a] border-2 border-[#4fc3f7]/30 rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden">
@@ -366,6 +414,7 @@ export function StudentProfile() {
         </div>
       </div>
 
+      {/* Archive */}
       <div className="mt-8 space-y-6">
         <div className="flex items-center gap-3 text-xs font-black text-[#666] uppercase tracking-[0.3em] border-l-2 border-[#4fc3f7] pl-4">
           <Clock className="w-4 h-4" /> Архив аналитики

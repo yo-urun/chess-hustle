@@ -58,8 +58,7 @@ class TacticsDetector:
         except: pass
         return list(set(tactics))
 
-def analyze_game(pgn_text: str, username: str) -> Dict[str, Any]:
-    # Extract ID first to ensure we return it even on error
+def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None) -> Dict[str, Any]:
     game_id = "unknown"
     try:
         pgn = io.StringIO(pgn_text)
@@ -79,23 +78,38 @@ def analyze_game(pgn_text: str, username: str) -> Dict[str, Any]:
         prev_eval = 0.0
         prev_material = get_material_value(board)
 
+        # Map existing evals for quick access if available
+        evals_data = {}
+        if existing_evals:
+            for e in existing_evals:
+                if "move" in e: evals_data[int(e["move"])] = e
+
         for i, move in enumerate(moves):
             move_num = i + 1
             player_turn = (i % 2 == 0)
             is_player_move = (player_turn == is_white)
             
             fen_before = board.fen()
-            cloud_data = fetch_cloud_eval(fen_before)
             
-            curr_eval = prev_eval
+            # Priority: 1. Browser/Stockfish evals, 2. Cloud Eval
+            curr_eval = None
             best_move_uci = None
-            if cloud_data:
-                pvs = cloud_data.get("pvs", [{}])[0]
-                best_move_uci = pvs.get("moves", "").split(" ")[0]
-                cp = pvs.get("cp")
-                mate = pvs.get("mate")
-                if cp is not None: curr_eval = cp / 100.0
-                elif mate: curr_eval = 20.0 if mate > 0 else -20.0
+            
+            if move_num in evals_data:
+                e = evals_data[move_num]
+                curr_eval = e.get("eval")
+                best_move_uci = e.get("bestMove")
+            else:
+                cloud_data = fetch_cloud_eval(fen_before)
+                if cloud_data:
+                    pvs = cloud_data.get("pvs", [{}])[0]
+                    best_move_uci = pvs.get("moves", "").split(" ")[0]
+                    cp = pvs.get("cp")
+                    mate = pvs.get("mate")
+                    if cp is not None: curr_eval = cp / 100.0
+                    elif mate: curr_eval = 20.0 if mate > 0 else -20.0
+
+            if curr_eval is None: curr_eval = prev_eval
 
             move_san = board.san(move)
             played_tactics = detector.get_tactics(move)
@@ -156,7 +170,7 @@ class handler(BaseHTTPRequestHandler):
             username = data.get("username", "")
             all_results = []
             with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(analyze_game, g["pgn"], username) for g in games]
+                futures = [executor.submit(analyze_game, g["pgn"], username, g.get("evals")) for g in games]
                 for f in futures:
                     all_results.append(f.result())
             self.send_response(200)
