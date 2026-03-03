@@ -164,12 +164,15 @@ export function StudentProfile() {
       });
 
       setAnalysisProgress("Синхронизация...");
-      await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedResults);
-      
+      const result = await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedResults);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Ошибка при сохранении результатов анализа');
+      }
+
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
-      alert('Техническая подготовка завершена.');
-    } catch (error: any) {
+      alert(`Техническая подготовка завершена. Обработано партий: ${result.count}`);    } catch (error: any) {
       alert('Ошибка подготовки: ' + error.message);
     } finally {
       setIsTechnicalAnalyzing(false);

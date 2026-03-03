@@ -21,32 +21,51 @@ export async function runBatchAnalysis(
   username: string,
   games: { pgn: string; lichess_id: string; evals?: any[] }[]
 ) {
-  const payload = games.map(g => ({ 
-    pgn: g.pgn, 
-    evals: g.evals,
-    lichess_id: g.lichess_id.trim().toLowerCase() // Normalize ID
-  }));
-  
-  const result = await callPythonAnalyst(payload, username);
+  try {
+    console.log(`[runBatchAnalysis] Starting analysis for ${username}, ${games.length} games`);
+    const payload = games.map(g => {
+      const lid = g.lichess_id || (g as any).id;
+      if (!lid) {
+        console.warn('[runBatchAnalysis] Game missing ID:', g);
+      }
+      return { 
+        pgn: g.pgn, 
+        evals: g.evals,
+        lichess_id: (lid || "").trim().toLowerCase() 
+      };
+    });
+    
+    const result = await callPythonAnalyst(payload, username);
 
-  if (result.status !== 'success') {
-    throw new Error(result.error || 'Analysis failed');
-  }
+    if (result.status !== 'success') {
+      console.error('[runBatchAnalysis] Python Analyst returned error:', result.error);
+      return { success: false, error: result.error || 'Analysis failed' };
+    }
 
-  const results = [];
-  for (const analysis of result.analyses) {
-    const gameId = analysis.game_id?.trim().toLowerCase();
-    if (gameId && gameId !== "unknown") {
-      try {
-        await updateGameTechnicalAnalysis(gameId, studentId, analysis);
-        results.push(analysis);
-      } catch (dbError) {
-        console.error(`[runBatchAnalysis] DB Update Error for ${gameId}:`, dbError);
+    const results = [];
+    console.log(`[runBatchAnalysis] Successfully analyzed ${result.analyses.length} games. Updating DB...`);
+    
+    for (const analysis of result.analyses) {
+      const gameId = analysis.game_id?.trim().toLowerCase();
+      if (gameId && gameId !== "unknown") {
+        try {
+          if (analysis.error) {
+            console.warn(`[runBatchAnalysis] Analysis for ${gameId} has error: ${analysis.error}`);
+          }
+          await updateGameTechnicalAnalysis(gameId, studentId, analysis);
+          results.push(analysis);
+        } catch (dbError: any) {
+          console.error(`[runBatchAnalysis] DB Update Error for ${gameId}:`, dbError);
+        }
       }
     }
-  }
 
-  return results;
+    console.log(`[runBatchAnalysis] Finished. Updated ${results.length} games in DB.`);
+    return { success: true, count: results.length };
+  } catch (error: any) {
+    console.error('[runBatchAnalysis] Critical Error:', error);
+    return { success: false, error: error.message || 'Unknown error occurred during analysis synchronization' };
+  }
 }
 
 export async function collectStudentData(
