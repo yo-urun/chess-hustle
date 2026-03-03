@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useApp } from "@/lib/context/app-context"
-import { Chess } from "chess.js"
 import {
   ArrowLeft,
   ExternalLink,
@@ -38,7 +37,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { StockfishEngine } from "@/lib/stockfish-engine"
+import { StockfishPool } from "@/lib/stockfish-pool"
 
 export function StudentProfile() {
   const { selectedStudent, selectStudent } = useApp()
@@ -52,22 +51,21 @@ export function StudentProfile() {
   const [storedGames, setStoredGames] = useState<GameRecord[]>([])
   const [deepData, setDeepData] = useState<any[] | null>(null)
   
-  // Filters
   const [perfType, setPerfType] = useState<string>("blitz")
   const [colorFilter, setColorFilter] = useState<"white" | "black" | "all">("all")
   const [resultFilter, setResultFilter] = useState<"win" | "loss" | "draw" | "all">("all")
   const [maxGames, setMaxGames] = useState<number>(20)
   
   const [analysisProgress, setAnalysisProgress] = useState<string>("")
-  const engineRef = useRef<StockfishEngine | null>(null);
+  const poolRef = useRef<StockfishPool | null>(null);
 
   useEffect(() => {
     if (selectedStudent) {
       loadInitialData();
     }
     return () => {
-      engineRef.current?.terminate();
-      engineRef.current = null;
+      poolRef.current?.terminate();
+      poolRef.current = null;
     };
   }, [selectedStudent]);
 
@@ -151,47 +149,21 @@ export function StudentProfile() {
     }
 
     setIsTechnicalAnalyzing(true);
-    if (!engineRef.current) engineRef.current = new StockfishEngine();
+    if (!poolRef.current) poolRef.current = new StockfishPool(4);
 
     try {
-      // Пагинация для стабильности
-      const batchSize = 5;
-      for (let i = 0; i < unanalyzed.length; i += batchSize) {
-        const batch = unanalyzed.slice(i, i + batchSize);
-        const analyzedBatch = [];
+      setAnalysisProgress("Параллельный анализ...");
+      const analyzedResults = await poolRef.current.analyzeBatch(unanalyzed, (wIdx, m, total) => {
+        setAnalysisProgress(`Воркер ${wIdx + 1} | Ход ${m}/${total}`);
+      });
 
-        for (let j = 0; j < batch.length; j++) {
-          const game = batch[j];
-          const chess = new Chess();
-          chess.loadPgn(game.pgn);
-          const moves = chess.history();
-          const evals: any[] = [];
-          
-          chess.reset();
-          for (let m = 0; m < moves.length; m++) {
-            chess.move(moves[m]);
-            setAnalysisProgress(`Партия ${i + j + 1}/${unanalyzed.length} | Ход ${m + 1}/${moves.length}`);
-            const result = await engineRef.current.evaluateFen(chess.fen(), 12);
-            if (result.cp !== undefined || result.mate !== undefined) {
-              evals.push({
-                move: m + 1,
-                eval: (result.cp ?? (result.mate! * 1000)) / 100.0,
-                bestMove: result.bestMove
-              });
-            }
-          }
-          analyzedBatch.push({ ...game, evals, lichess_id: game.id });
-        }
-
-        setAnalysisProgress("Синхронизация...");
-        await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedBatch);
-        const updatedGames = await getStudentGames(selectedStudent.id);
-        setStoredGames(updatedGames);
-      }
+      setAnalysisProgress("Синхронизация...");
+      await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedResults);
       
-      alert('Вся выборка подготовлена.');
+      const updatedGames = await getStudentGames(selectedStudent.id);
+      setStoredGames(updatedGames);
+      alert('Техническая подготовка завершена (4 потока).');
     } catch (error: any) {
-      console.error("Prep error:", error);
       alert('Ошибка подготовки: ' + error.message);
     } finally {
       setIsTechnicalAnalyzing(false);
@@ -331,7 +303,6 @@ export function StudentProfile() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Table Area */}
         <div className="lg:col-span-1 bg-[#1a1a1a] border border-[#333] rounded-3xl overflow-hidden flex flex-col max-h-[600px] shadow-2xl">
           <div className="p-4 border-b border-[#222] bg-[#111]/50 flex justify-between items-center">
             <span className="text-[10px] font-black uppercase text-[#666] tracking-widest">Выборка</span>
@@ -361,7 +332,6 @@ export function StudentProfile() {
           </div>
         </div>
 
-        {/* Report Area */}
         <div className="lg:col-span-2 space-y-6">
           {aiReport ? (
             <div className="bg-[#1a1a1a] border-2 border-[#4fc3f7]/30 rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden">
