@@ -48,6 +48,7 @@ export function StudentProfile() {
   const [aiReport, setAiReport] = useState<string | null>(null)
   const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([])
   const [storedGames, setStoredGames] = useState<GameRecord[]>([])
+  const [deepData, setDeepData] = useState<any[] | null>(null)
   
   // Filters
   const [perfType, setPerfType] = useState<string>("blitz")
@@ -79,17 +80,38 @@ export function StudentProfile() {
     }
   };
 
+  // Упрощенная фильтрация для надежности
   const filteredGames = useMemo(() => {
+    if (!storedGames) return [];
+    
     return storedGames.filter(g => {
+      // 1. Фильтр по цвету (ищем никнейм в PGN)
       const isWhite = g.pgn.includes(`[White "${selectedStudent?.nickname}"]`);
       const matchesColor = colorFilter === "all" || (colorFilter === "white" && isWhite) || (colorFilter === "black" && !isWhite);
-      const res = g.metadata.result;
-      const matchesResult = resultFilter === "all" || resultFilter === res.toLowerCase();
-      // Simple variant check in PGN
-      const matchesPerf = perfType === "all" || g.pgn.includes(`[Variant "${perfType}"]`) || g.pgn.includes(`[Event "Rated ${perfType.charAt(0).toUpperCase() + perfType.slice(1)} game"]`);
-      return matchesColor && matchesResult && (perfType === 'all' || matchesPerf);
+      
+      // 2. Фильтр по результату (из метаданных)
+      const res = (g.metadata?.result || "").toLowerCase();
+      const matchesResult = resultFilter === "all" || resultFilter === res;
+      
+      return matchesColor && matchesResult;
     }).slice(0, maxGames);
-  }, [storedGames, colorFilter, resultFilter, maxGames, selectedStudent, perfType]);
+  }, [storedGames, colorFilter, resultFilter, maxGames, selectedStudent]);
+
+  // Синхронизация deepData для кнопок действий
+  useEffect(() => {
+    if (filteredGames.length > 0) {
+      setDeepData(filteredGames.map(g => ({
+        id: g.lichess_id,
+        opponent: g.metadata?.opponent,
+        result: g.metadata?.result,
+        pgn: g.pgn,
+        evals: g.metadata?.evals || [],
+        technicalAnalysis: g.technical_analysis
+      })));
+    } else {
+      setDeepData(null);
+    }
+  }, [filteredGames]);
 
   if (!selectedStudent) return null
 
@@ -104,7 +126,7 @@ export function StudentProfile() {
       };
       const data = await collectStudentData(selectedStudent.nickname, options as any);
       
-      if (data.length > 0) {
+      if (data && data.length > 0) {
         await saveGamesBatch(data.map(g => ({
           lichess_id: g.id,
           student_id: selectedStudent.id!,
@@ -113,6 +135,8 @@ export function StudentProfile() {
         })));
         const updatedGames = await getStudentGames(selectedStudent.id);
         setStoredGames(updatedGames);
+      } else {
+        alert('Lichess не вернул новых партий по этим фильтрам.');
       }
     } catch (error: any) {
       alert('Ошибка Lichess: ' + error.message);
@@ -122,15 +146,15 @@ export function StudentProfile() {
   };
 
   const handleTechnicalPrep = async () => {
-    if (filteredGames.length === 0 || !selectedStudent?.id) return;
+    if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
     setIsTechnicalAnalyzing(true);
     try {
-      const toAnalyze = filteredGames.filter(g => !g.technical_analysis).slice(0, 10);
+      const toAnalyze = deepData.filter(g => !g.technicalAnalysis).slice(0, 10);
       if (toAnalyze.length === 0) {
-        alert('Все выбранные партии уже имеют технический анализ.');
+        alert('Все выбранные партии уже подготовлены.');
         return;
       }
-      const payload = toAnalyze.map(g => ({ pgn: g.pgn, lichess_id: g.lichess_id, evals: g.metadata.evals }));
+      const payload = toAnalyze.map(g => ({ pgn: g.pgn, lichess_id: g.id, evals: g.evals }));
       await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, payload);
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
@@ -142,11 +166,11 @@ export function StudentProfile() {
   };
 
   const handleGenerateAiReport = async () => {
-    if (filteredGames.length === 0 || !selectedStudent?.id) return;
-    const readyGames = filteredGames.filter(g => g.technical_analysis).map(g => g.technical_analysis);
+    if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
+    const readyGames = deepData.filter(g => g.technicalAnalysis).map(g => g.technicalAnalysis);
     
     if (readyGames.length === 0) {
-      alert('Нет подготовленных данных! Запустите "Подготовку данных".');
+      alert('Нет подготовленных данных! Сначала запустите "Подготовку данных".');
       return;
     }
 
@@ -157,7 +181,7 @@ export function StudentProfile() {
 
       await saveAnalysis({
         student_id: selectedStudent.id,
-        pgn: filteredGames.map(g => g.pgn).join('\n\n'),
+        pgn: deepData.map(g => g.pgn).join('\n\n'),
         analysis_data: readyGames,
         report: report,
         metadata: {
@@ -183,10 +207,6 @@ export function StudentProfile() {
       await deleteAnalysis(id);
       setSavedAnalyses(prev => prev.filter(a => a.id !== id));
     } catch (e) { alert('Ошибка при удалении'); }
-  };
-
-  const handleCreateStudio = async () => {
-    alert('Эта функция временно ограничена из-за прав доступа Lichess.');
   };
 
   return (
@@ -268,11 +288,11 @@ export function StudentProfile() {
             {isCollecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Database className="w-4 h-4 mr-2" /> 1. Загрузить игры</>}
           </Button>
           
-          <Button onClick={handleTechnicalPrep} disabled={filteredGames.length === 0 || isTechnicalAnalyzing} className="h-14 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 hover:bg-yellow-500/20 font-black text-xs uppercase tracking-widest">
-            {isTechnicalAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-2" /> 2. Подготовка ({filteredGames.filter(g => !g.technical_analysis).length})</>}
+          <Button onClick={handleTechnicalPrep} disabled={!deepData || isTechnicalAnalyzing} className="h-14 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 hover:bg-yellow-500/20 font-black text-xs uppercase tracking-widest">
+            {isTechnicalAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-2" /> 2. Подготовка ({deepData?.filter(g => !g.technicalAnalysis).length || 0})</>}
           </Button>
 
-          <Button onClick={handleGenerateAiReport} disabled={filteredGames.length === 0 || isAIAnalyzing} className="h-14 rounded-2xl bg-gradient-to-r from-[#4fc3f7] to-[#2196f3] text-black hover:opacity-90 font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(79,195,247,0.3)]">
+          <Button onClick={handleGenerateAiReport} disabled={!deepData || isAIAnalyzing} className="h-14 rounded-2xl bg-gradient-to-r from-[#4fc3f7] to-[#2196f3] text-black hover:opacity-90 font-black text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(79,195,247,0.3)]">
             {isAIAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <><BrainCircuit className="w-4 h-4 mr-2" /> 3. ИИ-Рекомендации</>}
           </Button>
         </div>
@@ -290,11 +310,11 @@ export function StudentProfile() {
                 <div className="flex flex-col gap-1">
                   <div className="text-xs font-bold flex items-center gap-2">
                     {game.technical_analysis ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <Zap className="w-3 h-3 text-yellow-500/30" />}
-                    vs {game.metadata.opponent}
+                    vs {game.metadata?.opponent}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-[9px] font-black uppercase px-1.5 rounded ${game.metadata.result === 'Win' ? 'bg-green-500/10 text-green-500' : game.metadata.result === 'Loss' ? 'bg-red-500/10 text-red-500' : 'bg-gray-500/10 text-gray-500'}`}>
-                      {game.metadata.result}
+                    <span className={`text-[9px] font-black uppercase px-1.5 rounded ${game.metadata?.result === 'Win' ? 'bg-green-500/10 text-green-500' : game.metadata?.result === 'Loss' ? 'bg-red-500/10 text-red-500' : 'bg-gray-500/10 text-gray-500'}`}>
+                      {game.metadata?.result}
                     </span>
                   </div>
                 </div>
@@ -303,6 +323,7 @@ export function StudentProfile() {
                 </a>
               </div>
             ))}
+            {filteredGames.length === 0 && <div className="p-12 text-center text-[#444] text-xs font-bold uppercase italic">Выборка пуста</div>}
           </div>
         </div>
 
