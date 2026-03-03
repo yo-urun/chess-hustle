@@ -153,8 +153,8 @@ export function StudentProfile() {
 
     try {
       setAnalysisProgress("Параллельный анализ...");
-      const analyzedResults = await poolRef.current.analyzeBatch(unanalyzed, (wIdx, m, total) => {
-        setAnalysisProgress(`Воркер ${wIdx + 1} | Ход ${m}/${total}`);
+      const analyzedResults = await poolRef.current.analyzeBatch(unanalyzed, (status) => {
+        setAnalysisProgress(status);
       });
 
       setAnalysisProgress("Синхронизация...");
