@@ -80,14 +80,14 @@ export function StudentProfile() {
     }
   };
 
-  // Профессиональная фильтрация: опираемся на ТОЧНЫЕ метаданные
+  // Умная фильтрация с фолбеками для старых данных
   const filteredGames = useMemo(() => {
     if (!storedGames) return [];
     
     return storedGames.filter(g => {
-      // 1. Фильтр по контролю времени
+      // 1. Фильтр по контролю времени (с поддержкой старых записей)
       const gPerf = (g.metadata?.perf_type || "").toLowerCase();
-      const matchesPerf = perfType === "all" || gPerf === perfType;
+      const matchesPerf = perfType === "all" || gPerf === perfType || gPerf === "";
 
       // 2. Фильтр по цвету
       const isWhite = g.pgn.includes(`[White "${selectedStudent?.nickname}"]`);
@@ -101,6 +101,7 @@ export function StudentProfile() {
     }).slice(0, maxGames);
   }, [storedGames, perfType, colorFilter, resultFilter, maxGames, selectedStudent]);
 
+  // Синхронизируем deepData для аналитика
   useEffect(() => {
     if (filteredGames.length > 0) {
       setDeepData(filteredGames.map(g => ({
@@ -144,7 +145,7 @@ export function StudentProfile() {
         const updatedGames = await getStudentGames(selectedStudent.id);
         setStoredGames(updatedGames);
       } else {
-        alert('По вашему запросу новых партий не найдено.');
+        alert('Новых партий не найдено.');
       }
     } catch (error: any) {
       alert('Ошибка Lichess: ' + error.message);
@@ -159,11 +160,14 @@ export function StudentProfile() {
     try {
       const toAnalyze = deepData.filter(g => !g.technicalAnalysis).slice(0, 10);
       if (toAnalyze.length === 0) {
-        alert('Все выбранные партии уже подготовлены.');
+        alert('Выбранные партии уже подготовлены.');
         return;
       }
       const payload = toAnalyze.map(g => ({ pgn: g.pgn, lichess_id: g.id, evals: g.evals }));
-      await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, payload);
+      const results = await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, payload);
+      
+      console.log(`[TechnicalPrep] Successfully processed ${results.length} games`);
+      
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
     } catch (error: any) {
@@ -175,10 +179,12 @@ export function StudentProfile() {
 
   const handleGenerateAiReport = async () => {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
+    
+    // Важно: берем ТОЛЬКО те, где technicalAnalysis реально существует
     const readyGames = deepData.filter(g => g.technicalAnalysis).map(g => g.technicalAnalysis);
     
     if (readyGames.length === 0) {
-      alert('Сначала подготовьте данные!');
+      alert('Нет подготовленных данных в текущей выборке! Сначала нажмите кнопку "Подготовка".');
       return;
     }
 
@@ -189,7 +195,7 @@ export function StudentProfile() {
 
       await saveAnalysis({
         student_id: selectedStudent.id,
-        pgn: deepData.map(g => g.pgn).join('\n\n'),
+        pgn: deepData.filter(g => g.technicalAnalysis).map(g => g.pgn).join('\n\n'),
         analysis_data: readyGames,
         report: report,
         metadata: {
@@ -231,7 +237,6 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Filter Panel */}
       <div className="bg-[#1a1a1a] border border-[#333] p-6 rounded-3xl shadow-xl flex flex-col gap-6 border-b-4 border-b-[#4fc3f7]/20">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="space-y-2">
@@ -308,7 +313,6 @@ export function StudentProfile() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Table Area */}
         <div className="lg:col-span-1 bg-[#1a1a1a] border border-[#333] rounded-3xl overflow-hidden flex flex-col max-h-[600px] shadow-2xl">
           <div className="p-4 border-b border-[#222] bg-[#111]/50 flex justify-between items-center">
             <span className="text-[10px] font-black uppercase text-[#666] tracking-widest">Выборка</span>
@@ -326,7 +330,7 @@ export function StudentProfile() {
                     <span className={`text-[9px] font-black uppercase px-1.5 rounded ${game.metadata?.result === 'Win' ? 'bg-green-500/10 text-green-500' : game.metadata?.result === 'Loss' ? 'bg-red-500/10 text-red-500' : 'bg-gray-500/10 text-gray-500'}`}>
                       {game.metadata?.result}
                     </span>
-                    <span className="text-[9px] font-black text-[#444] uppercase tracking-tighter">{game.metadata?.perf_type}</span>
+                    <span className="text-[9px] font-black text-[#444] uppercase tracking-tighter">{game.metadata?.perf_type || 'OLD'}</span>
                   </div>
                 </div>
                 <a href={`https://lichess.org/${game.lichess_id}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-[#333] hover:text-[#4fc3f7] hover:bg-white/5 transition-all">
@@ -338,7 +342,6 @@ export function StudentProfile() {
           </div>
         </div>
 
-        {/* Report Area */}
         <div className="lg:col-span-2 space-y-6">
           {aiReport ? (
             <div className="bg-[#1a1a1a] border-2 border-[#4fc3f7]/30 rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden">
@@ -363,7 +366,6 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Archive */}
       <div className="mt-8 space-y-6">
         <div className="flex items-center gap-3 text-xs font-black text-[#666] uppercase tracking-[0.3em] border-l-2 border-[#4fc3f7] pl-4">
           <Clock className="w-4 h-4" /> Архив аналитики
