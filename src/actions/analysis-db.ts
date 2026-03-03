@@ -16,6 +16,8 @@ export interface SavedAnalysis {
     game_count: number;
     perf_type: string;
     date_range?: string;
+    result_filter?: string;
+    color_filter?: string;
   };
   created_at: string;
 }

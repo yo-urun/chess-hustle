@@ -365,6 +365,7 @@ export function StudentProfile() {
                     <span className="text-[8px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-black uppercase">
                       {analysis.metadata?.result_filter || 'all'}
                     </span>
+
                   </div>
                 </div>
                 <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 rounded-xl text-[#333] hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100">
