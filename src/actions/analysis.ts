@@ -21,10 +21,10 @@ export async function runBatchAnalysis(
   username: string,
   games: { pgn: string; lichess_id: string; evals?: any[] }[]
 ) {
-  // Pass evals from browser to Python
   const payload = games.map(g => ({ 
     pgn: g.pgn, 
-    evals: g.evals // These might be from Lichess OR from Stockfish WASM
+    evals: g.evals,
+    lichess_id: g.lichess_id // Explicitly pass ID to Python
   }));
   
   const result = await callPythonAnalyst(payload, username);

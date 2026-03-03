@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Any, Optional
 from functools import lru_cache
+from chess_tactic_classifier import Classifier
 
 # --- Configuration ---
 LICHESS_CLOUD_EVAL_URL = "https://lichess.org/api/cloud-eval"
@@ -27,58 +28,30 @@ def get_material_value(board: chess.Board) -> int:
     black = sum(len(board.pieces(pt, chess.BLACK)) * val for pt, val in values.items())
     return white - black
 
-class TacticsDetector:
-    def __init__(self, board: chess.Board):
-        self.board = board
+# --- Core Analysis Engine ---
 
-    def get_tactics(self, move: chess.Move) -> List[str]:
-        tactics = []
-        try:
-            if self.board.gives_check(move):
-                self.board.push(move)
-                if len(self.board.checkers()) > 1: tactics.append("double_check")
-                else: tactics.append("check")
-                self.board.pop()
-
-            self.board.push(move)
-            moved_piece_sq = move.to_square
-            moved_piece = self.board.piece_at(moved_piece_sq)
-            if moved_piece:
-                attacks = self.board.attacks(moved_piece_sq)
-                valuable_targets = 0
-                for sq in attacks:
-                    target = self.board.piece_at(sq)
-                    if target and target.color != moved_piece.color:
-                        if target.piece_type in [chess.ROOK, chess.QUEEN, chess.KING, chess.BISHOP, chess.KNIGHT]:
-                            valuable_targets += 1
-                if valuable_targets >= 2: tactics.append("fork")
-            self.board.pop()
-            
-            if self.board.is_capture(move): tactics.append("capture")
-        except: pass
-        return list(set(tactics))
-
-def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None) -> Dict[str, Any]:
-    game_id = "unknown"
+def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None, manual_id: str = None) -> Dict[str, Any]:
     try:
         pgn = io.StringIO(pgn_text)
         game = chess.pgn.read_game(pgn)
-        if game:
-            game_id = game.headers.get("LichessId", game.headers.get("Site", "").split("/")[-1])
         
+        game_id = manual_id or (game.headers.get("LichessId") if game else "unknown")
         if not game: return {"game_id": game_id, "error": "Invalid PGN"}
 
         headers = game.headers
-        is_white = headers.get("White", "").lower() == username.lower()
+        white_name = headers.get("White", "Unknown")
+        black_name = headers.get("Black", "Unknown")
+        is_white = white_name.lower() == username.lower()
+        
         board = game.board()
         moves = list(game.mainline_moves())
         
         analysis_map = {}
-        detector = TacticsDetector(board)
+        classifier = Classifier() # Initialize professional classifier
+        
         prev_eval = 0.0
         prev_material = get_material_value(board)
 
-        # Map existing evals for quick access if available
         evals_data = {}
         if existing_evals:
             for e in existing_evals:
@@ -91,15 +64,19 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
             
             fen_before = board.fen()
             
-            # Priority: 1. Browser/Stockfish evals, 2. Cloud Eval
             curr_eval = None
             best_move_uci = None
+            best_move_tactics = []
             
+            # Fetch Eval and Best Move
             if move_num in evals_data:
                 e = evals_data[move_num]
                 curr_eval = e.get("eval")
+                if curr_eval is not None and abs(curr_eval) > 50:
+                    curr_eval = curr_eval / 100.0
                 best_move_uci = e.get("bestMove")
-            else:
+            
+            if curr_eval is None:
                 cloud_data = fetch_cloud_eval(fen_before)
                 if cloud_data:
                     pvs = cloud_data.get("pvs", [{}])[0]
@@ -111,9 +88,26 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
 
             if curr_eval is None: curr_eval = prev_eval
 
+            # Tactic Classification for Played Move
             move_san = board.san(move)
-            played_tactics = detector.get_tactics(move)
+            # Use Classifier to get tactical themes
+            try:
+                played_tactics = classifier.classify(fen_before, move.uci())
+                if not isinstance(played_tactics, list):
+                    played_tactics = []
+            except:
+                played_tactics = []
             
+            # Tactic Classification for Best Move (to find missed opportunities)
+            if best_move_uci and best_move_uci != move.uci():
+                try:
+                    best_move_tactics = classifier.classify(fen_before, best_move_uci)
+                    if not isinstance(best_move_tactics, list):
+                        best_move_tactics = []
+                except:
+                    best_move_tactics = []
+
+            # Sacrifice Detector
             current_material = get_material_value(board)
             material_delta = current_material - prev_material
             player_material_delta = material_delta if player_turn else -material_delta
@@ -122,6 +116,9 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
             if player_material_delta < -100 and eval_delta > -0.5:
                 played_tactics.append("sacrifice")
 
+            # Missed Tactics Logic
+            missed_tactics = [t for t in best_move_tactics if t not in played_tactics]
+            
             board.push(move)
             
             annotation = {
@@ -135,8 +132,12 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
             if is_player_move:
                 if eval_delta < -1.5: annotation["severity"] = "blunder"
                 elif eval_delta < -0.8: annotation["severity"] = "mistake"
+                
+                if missed_tactics:
+                    annotation["missed_tactics"] = missed_tactics
 
-            if played_tactics or annotation.get("severity"):
+            # Only add significant moments
+            if played_tactics or annotation.get("severity") or annotation.get("missed_tactics"):
                 analysis_map[f"move_{move_num}"] = annotation
 
             prev_eval = curr_eval
@@ -148,13 +149,14 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
             "analysis_map": analysis_map,
             "statistics": {
                 "blunders": len([m for m in analysis_map.values() if m.get("severity") == "blunder"]),
+                "missed_tactics": len([m for m in analysis_map.values() if m.get("missed_tactics")]),
                 "brilliant_moves": len([m for m in analysis_map.values() if "sacrifice" in m.get("tactics", [])])
             },
             "game_info": {
-                "white": headers.get("White"),
-                "black": headers.get("Black"),
-                "result": headers.get("Result"),
-                "site": headers.get("Site")
+                "White": white_name,
+                "Black": black_name,
+                "Result": headers.get("Result"),
+                "Site": headers.get("Site")
             }
         }
     except Exception as e:
@@ -170,7 +172,7 @@ class handler(BaseHTTPRequestHandler):
             username = data.get("username", "")
             all_results = []
             with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(analyze_game, g["pgn"], username, g.get("evals")) for g in games]
+                futures = [executor.submit(analyze_game, g["pgn"], username, g.get("evals"), g.get("lichess_id")) for g in games]
                 for f in futures:
                     all_results.append(f.result())
             self.send_response(200)
