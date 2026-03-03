@@ -14,7 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   History,
-  Clock
+  Clock,
+  Swords
 } from "lucide-react"
 import { createLichessStudio, importPgnToStudio, sendLichessMessage } from "@/actions/lichess"
 import { collectStudentData, runBatchAnalysis } from "@/actions/analysis"
@@ -47,6 +48,9 @@ export function StudentProfile() {
   useEffect(() => {
     if (selectedStudent) {
       loadSavedAnalyses();
+      setDeepData(null);
+      setAiReport(null);
+      setRecommendedGames(null);
     }
   }, [selectedStudent]);
 
@@ -58,8 +62,9 @@ export function StudentProfile() {
 
   if (!selectedStudent) return null
 
-  const handleDeepCollect = async (isNewGames: boolean = false) => {
+  const handleDeepCollect = async () => {
     setIsCollecting(true);
+    setDeepData(null);
     try {
       const options: any = {
         max: maxGames,
@@ -72,19 +77,26 @@ export function StudentProfile() {
 
       const data = await collectStudentData(selectedStudent.nickname, options);
       setDeepData(data);
-    } catch (error) {
-      alert('Ошибка при сборе истории.');
+      console.log(`[handleDeepCollect] Loaded ${data.length} games`);
+    } catch (error: any) {
+      alert('Ошибка при сборе истории: ' + error.message);
     } finally {
       setIsCollecting(false);
     }
   };
 
   const handlePythonAnalysis = async () => {
-    if (!deepData || !selectedStudent?.id || !selectedStudent?.nickname) return;
+    if (!deepData || deepData.length === 0 || !selectedStudent?.id || !selectedStudent?.nickname) {
+      alert('Сначала загрузите партии!');
+      return;
+    }
     setIsAIAnalyzing(true);
     try {
+      // Берем PGN только тех партий, которые были загружены
       const pgns = deepData.map(g => g.pgn).filter(Boolean);
       
+      if (pgns.length === 0) throw new Error('Нет доступных PGN для анализа.');
+
       const result = await runBatchAnalysis(
         selectedStudent.id,
         selectedStudent.nickname,
@@ -99,6 +111,7 @@ export function StudentProfile() {
 
       loadSavedAnalyses();
     } catch (error: any) {
+      console.error('[handlePythonAnalysis] Error:', error);
       alert(error.message || 'Ошибка при работе Python-аналитика.');
     } finally {
       setIsAIAnalyzing(false);
@@ -128,8 +141,7 @@ export function StudentProfile() {
       alert('Студия создана и ссылка отправлена ученику!');
     } catch (error: any) {
       console.error('[handleCreateStudio] Error:', error);
-      const errorMessage = error.message || 'Неизвестная ошибка при создании студии';
-      alert('Ошибка при создании студии: ' + errorMessage);
+      alert('Ошибка при создании студии: ' + error.message);
     } finally {
       setIsCreatingStudio(false);
     }
@@ -156,7 +168,7 @@ export function StudentProfile() {
           </div>
           <div className="flex-1">
             <h1 className="text-4xl font-black tracking-tight">{selectedStudent.nickname}</h1>
-            <p className="text-[#666] mt-1 font-medium italic">Подготовка персонализированного обучения...</p>
+            <p className="text-[#666] mt-1 font-medium italic">Персонализированный шахматный коучинг</p>
           </div>
         </div>
 
@@ -218,35 +230,57 @@ export function StudentProfile() {
 
         <div className="flex gap-2 mt-2">
           <Button
-            onClick={() => handleDeepCollect(false)}
+            onClick={handleDeepCollect}
             disabled={isCollecting}
             className="flex-1 h-12 rounded-xl bg-[#4fc3f7] text-black hover:bg-[#4fc3f7]/90 font-bold"
           >
             {isCollecting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Database className="w-5 h-5 mr-2" />}
-            Загрузить партии
-          </Button>
-          
-          <Button
-            onClick={() => handleDeepCollect(true)}
-            disabled={isCollecting || !deepData}
-            variant="outline"
-            className="h-12 px-6 rounded-xl border-[#333] hover:bg-white/5 text-[#888]"
-            title="Новые партии"
-          >
-            <History className="w-5 h-5" />
+            {isCollecting ? 'Загрузка из Lichess...' : 'Загрузить партии'}
           </Button>
         </div>
       </div>
+
+      {/* Список загруженных партий (Метаданные) */}
+      {deepData && deepData.length > 0 && (
+        <div className="bg-[#2a2a2a] border border-blue-500/20 p-6 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-black text-blue-400 uppercase tracking-wider flex items-center gap-2">
+              <Swords className="w-4 h-4" /> Загружено партий: {deepData.length}
+            </h3>
+            <span className="text-[10px] text-[#666]">Готовы к анализу</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+            {deepData.map((game) => (
+              <div key={game.id} className="bg-[#1f1f1f] p-3 rounded-xl border border-[#333] flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold">vs {game.opponent}</span>
+                  <span className={`text-[10px] font-bold ${game.result === 'Win' ? 'text-green-500' : game.result === 'Loss' ? 'text-red-500' : 'text-gray-500'}`}>
+                    {game.result}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {game.blunders.length > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 border border-red-500/20">
+                      {game.blunders.length} зевков
+                    </span>
+                  )}
+                  <ExternalLink className="w-3 h-3 text-[#444]" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Карточка Python Анализа */}
         <div className="bg-[#2a2a2a] border border-[#333] p-8 rounded-3xl flex flex-col gap-6">
           <div className="flex items-center gap-3">
             <BrainCircuit className="w-6 h-6 text-[#4fc3f7]" />
-            <h2 className="text-xl font-bold">Python Аналитик (9 параметров)</h2>
+            <h2 className="text-xl font-bold">Интеллектуальный Анализ</h2>
           </div>
           <p className="text-sm text-[#888] leading-relaxed">
-            Анализ по 9 шахматным параметрам (материал, пространство, безопасность короля и др.) с использованием LLM.
+            Глубокий разбор 9 шахматных параметров с использованием ИИ. Сохраняется в базу для истории.
           </p>
           
           <div className="flex items-center gap-2 p-3 rounded-xl bg-[#1f1f1f] border border-[#333]">
@@ -258,13 +292,13 @@ export function StudentProfile() {
               className="w-4 h-4 rounded border-white/10 bg-white/5 text-[#4fc3f7] focus:ring-[#4fc3f7]"
             />
             <Label htmlFor="deep-analysis-toggle" className="text-xs text-[#888] cursor-pointer hover:text-[#e0e0e0] flex-1">
-              Глубокий анализ (Lichess Cloud Eval)
+              Глубокая оценка (Lichess Cloud Eval)
             </Label>
           </div>
 
           <button
             onClick={handlePythonAnalysis}
-            disabled={!deepData || isAIAnalyzing}
+            disabled={!deepData || deepData.length === 0 || isAIAnalyzing}
             className={`mt-auto flex items-center justify-center gap-2 py-4 rounded-2xl text-sm font-bold transition-all disabled:opacity-30 ${
               isDeepAnalysis
                 ? 'bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/30 text-purple-400 hover:border-purple-500/50'
@@ -272,7 +306,7 @@ export function StudentProfile() {
             }`}
           >
             {isAIAnalyzing ? <Loader2 className="w-4 h-4 animate-spin text-[#4fc3f7]" /> : <Sparkles className="w-4 h-4 text-[#4fc3f7]" />}
-            {isAIAnalyzing ? 'Анализирую...' : isDeepAnalysis ? 'Запустить Глубокий Анализ' : 'Запустить Поверхностный Анализ'}
+            {isAIAnalyzing ? 'Обработка данных...' : 'Запустить ИИ-Анализ'}
           </button>
         </div>
 
@@ -283,11 +317,11 @@ export function StudentProfile() {
             <h2 className="text-xl font-bold">Lichess Студия</h2>
           </div>
           <p className="text-sm text-[#888] leading-relaxed">
-            Создать интерактивный учебник на Lichess и отправить ссылку ученику в личку.
+            Создать учебник на Lichess из загруженных партий и отправить ученику.
           </p>
           <button
             onClick={handleCreateStudio}
-            disabled={!deepData || isCreatingStudio}
+            disabled={!deepData || deepData.length === 0 || isCreatingStudio}
             className="mt-auto flex items-center justify-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500/20 py-4 rounded-2xl text-sm font-bold transition-all disabled:opacity-30"
           >
             {isCreatingStudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquareShare className="w-4 h-4" />}
@@ -326,7 +360,7 @@ export function StudentProfile() {
       {aiReport && (
         <div className="bg-[#2a2a2a] border border-[#4fc3f7]/20 p-10 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-700">
           <h3 className="text-xs font-black text-[#4fc3f7] uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
-            <BrainCircuit className="w-4 h-4" /> Отчет Python-Аналитика
+            <BrainCircuit className="w-4 h-4" /> Отчет ИИ-Аналитика
           </h3>
           <div className="text-lg leading-relaxed text-[#e0e0e0]/90 whitespace-pre-wrap font-serif">
             {aiReport}

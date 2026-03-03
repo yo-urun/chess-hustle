@@ -10,6 +10,7 @@ export interface GameDeepData {
   id: string;
   opponent: string;
   result: string;
+  pgn: string;
   blunders: {
     move: number;
     played: string;
@@ -28,12 +29,9 @@ export async function runBatchAnalysis(
   pgns: string[],
   deep: boolean = true
 ) {
-  // 1. Limit to 10 games
   const batch = pgns.slice(0, 10);
+  console.log(`[runBatchAnalysis] Analyzing ${batch.length} games for ${username}`);
 
-  console.log(`[runBatchAnalysis] Starting analysis for ${username}, ${batch.length} games`);
-
-  // 2. Call Python Analyst (which is now parallel)
   const result = await callPythonAnalyst(batch, username, deep);
 
   if (result.status !== 'success') {
@@ -41,8 +39,6 @@ export async function runBatchAnalysis(
   }
 
   const savedAnalyses = [];
-
-  // 3. Save each analysis to Supabase
   for (const analysis of result.analyses) {
     try {
       const saved = await saveAnalysis({
@@ -55,7 +51,7 @@ export async function runBatchAnalysis(
       });
       savedAnalyses.push(saved);
     } catch (e) {
-      console.error(`[runBatchAnalysis] Failed to save analysis for game ${analysis.game_id}:`, e);
+      console.error(`[runBatchAnalysis] Save error:`, e);
     }
   }
 
@@ -79,51 +75,48 @@ export async function collectStudentData(
   const processedData: GameDeepData[] = [];
 
   for (const g of rawGames) {
-    if (!g.analysis) continue; // Нам нужны только проанализированные партии
-
-    const chess = new Chess();
-    const moves = g.moves.split(' ');
     const isWhite = g.players.white.user?.id === username.toLowerCase();
     
     const gameRecord: GameDeepData = {
       id: g.id,
       opponent: isWhite ? g.players.black.user?.name : g.players.white.user?.name,
-      result: g.winner === (isWhite ? 'white' : 'black') ? 'Win' : 'Loss',
+      result: g.winner === (isWhite ? 'white' : 'black') ? 'Win' : (g.winner ? 'Loss' : 'Draw'),
+      pgn: g.pgn || '',
       blunders: []
     };
 
-    let lastEval = 0;
-    
-    for (let i = 0; i < moves.length; i++) {
-      const fenBefore = chess.fen();
-      const movePlayed = moves[i];
+    // Если есть анализ от Lichess, извлечем зевки для быстрого превью
+    if (g.analysis) {
+      const chess = new Chess();
+      const moves = g.moves.split(' ');
+      let lastEval = 0;
       
-      try {
-        chess.move(movePlayed);
-        const currentEval = g.analysis[i]?.eval ?? lastEval;
-        const diff = isWhite ? (lastEval - currentEval) : (currentEval - lastEval);
+      for (let i = 0; i < moves.length; i++) {
+        const fenBefore = chess.fen();
+        const movePlayed = moves[i];
+        try {
+          chess.move(movePlayed);
+          const currentEval = g.analysis[i]?.eval ?? lastEval;
+          const diff = isWhite ? (lastEval - currentEval) : (currentEval - lastEval);
 
-        // Если это зевок (> 2 пешек)
-        if (diff > 200) {
-          gameRecord.blunders.push({
-            move: Math.floor(i/2) + 1,
-            played: movePlayed,
-            best: g.analysis[i]?.best || '?',
-            pv: g.analysis[i]?.pv || '',
-            evalBefore: lastEval,
-            evalAfter: currentEval,
-            diff: diff,
-            boardDescription: getVerbalBoard(fenBefore)
-          });
-        }
-        
-        lastEval = currentEval;
-      } catch (e) { break; }
+          if (diff > 200) {
+            gameRecord.blunders.push({
+              move: Math.floor(i/2) + 1,
+              played: movePlayed,
+              best: g.analysis[i]?.best || '?',
+              pv: g.analysis[i]?.pv || '',
+              evalBefore: lastEval,
+              evalAfter: currentEval,
+              diff: diff,
+              boardDescription: getVerbalBoard(fenBefore)
+            });
+          }
+          lastEval = currentEval;
+        } catch (e) { break; }
+      }
     }
 
-    if (gameRecord.blunders.length > 0) {
-      processedData.push(gameRecord);
-    }
+    processedData.push(gameRecord);
   }
 
   return processedData;
