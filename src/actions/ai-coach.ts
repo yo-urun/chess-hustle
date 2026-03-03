@@ -22,58 +22,53 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
 
   if (!profile) throw new Error('Профиль тренера не найден');
 
-  // Трансформация данных для LLM
-  // Мы берем сырой JSON от Python и превращаем его в читабельную сводку для LLM
-  const tacticalSummary = gamesData.map(g => {
-    // g - это PythonAnalysisResult
+  // Трансформация данных в "Вербальные Нарративы" (в стиле Chess Tutor)
+  const tacticalHighlights = gamesData.map(g => {
     const stats = g.statistics || {};
     const map = g.analysis_map || {};
     const info = g.game_info || {};
     
-    // Извлекаем только ключевые моменты
-    const moments = Object.values(map).filter((m: any) => 
+    const keyMoments = Object.values(map).filter((m: any) => 
         m.severity === 'blunder' || 
-        m.opportunity === 'missed_win' || 
         (m.tactics && m.tactics.length > 0) ||
-        m.tactic_type === 'sacrifice'
+        (m.missed_tactics && m.missed_tactics.length > 0)
     ).map((m: any) => {
-        return `Move ${m.move_number} (${m.color}): ${m.san}. Eval: ${m.eval}. 
-        ${m.tactics ? `Tactics: ${m.tactics.join(', ')}.` : ''} 
-        ${m.severity ? `Error: ${m.severity}.` : ''} 
-        ${m.opportunity ? `Missed: ${m.opportunity}.` : ''}
-        ${m.tactic_type === 'sacrifice' ? 'Sacrifice detected.' : ''}`;
+        return `Ход ${m.move_number} (${m.san}): Оценка ${m.eval.toFixed(1)}. 
+        ${m.tactics?.length ? `Темы: ${m.tactics.join(', ')}.` : ''} 
+        ${m.missed_tactics?.length ? `Упущено: ${m.missed_tactics.join(', ')}.` : ''}
+        ${m.severity === 'blunder' ? 'Критическая ошибка!' : ''}`;
     });
 
     return {
       game: `${info.White} vs ${info.Black}`,
-      result: info.Result,
-      url: info.Site || info.url,
-      stats: stats,
-      key_moments: moments
+      url: info.Site || `https://lichess.org/${g.game_id}`,
+      summary: `Зевков: ${stats.blunders}, Жертв: ${stats.brilliant_moves}, Упущено тактик: ${stats.missed_tactics}`,
+      highlights: keyMoments.slice(0, 5) // Берем топ-5 самых важных моментов партии
     };
   });
 
   const prompt = `
-    ТЫ — ЭЛИТНЫЙ ШАХМАТНЫЙ ТРЕНЕР. ТВОЯ ЗАДАЧА — СУХОЙ И ПРАВДИВЫЙ ОТЧЕТ ПО ПАРТИЯМ УЧЕНИКА ${studentNickname}.
+    ТЫ — АКТИВНЫЙ ШАХМАТНЫЙ ТЬЮТОР. Твоя цель — не просто перечислить ошибки, а ОБЪЯСНИТЬ концепции ученику ${studentNickname}.
     
-    ИСТОЧНИК ИСТИНЫ: ДАННЫЕ STOCKFISH И PYTHON-CHESS.
-    Я даю тебе список партий с уже выявленными тактическими ошибками (fork, pin) и упущенными победами.
-    Твоя задача — не "искать" ошибки (они уже найдены), а ОБЪЯСНИТЬ их и дать ссылку.
+    ТВОЙ СТИЛЬ:
+    - Профессиональный, но вдохновляющий (как в курсах Chess.com или Chessable).
+    - ТЕМПЕРАТУРА = 0 (строго по фактам).
+    - Каждое утверждение должно опираться на ДАННЫЕ АНАЛИЗА.
 
-    ЖЕСТКИЕ ПРАВИЛА:
-    1. ТЕМПЕРАТУРА АНАЛИЗА = 0.
-    2. Если в данных написано "Fork detected", ты должен сказать: "На N ходу пропущена вилка".
-    3. Если "Missed Win", ты должен сказать: "Упущена победа".
-    4. ОБЯЗАТЕЛЬНО давай ссылки на партии.
-    5. Используй шахматную терминологию (связка, рентген, цугцванг), если она есть в данных (pin, x-ray).
+    ИНСТРУКЦИИ:
+    1. ИСПОЛЬЗУЙ ССЫЛКИ: Когда говоришь о партии, давай её URL.
+    2. ОБЪЯСНЯЙ "ПОЧЕМУ": Если в данных есть "trappedPiece", объясни, что фигура оказалась в ловушке из-за отсутствия полей. Если "discoveredCheck" — опиши опасность вскрытого нападения.
+    3. РАЗБИРАЙ УПУЩЕННОЕ: Если ученик пропустил вилку (missed_tactics: fork), укажи на это как на зону роста.
+    4. ФОРМАТ: Чистый текст, разделенный абзацами. НИКАКИХ символов #, ##, ***.
 
-    ДАННЫЕ АНАЛИЗА:
-    ${JSON.stringify(tacticalSummary, null, 2)}
+    ДАННЫЕ ДЛЯ АНАЛИЗА:
+    ${JSON.stringify(tacticalHighlights, null, 2)}
     
-    СТРУКТУРА ОТЧЕТА:
-    1. Статистика (сколько зевков, сколько тактики).
-    2. Разбор конкретных ошибок. Цитируй ходы, объясняй тактические мотивы (например: перегрузка, отвлечение, завлечение, вилка, связка, сквозной удар, рентген, упущенная тактика) и давай ссылки.
-    3. Рекомендация (например: "Решать задачи на тему 'отвлечение'").
+    СТРУКТУРА:
+    - Приветствие и краткий итог по всем партиям.
+    - Глубокий разбор 2-3 самых поучительных моментов (с цитированием ходов и ссылками).
+    - Психологический портрет (например: "ты склонен пропускать удары на конях" или "ты отлично жертвуешь материал").
+    - Конкретное домашнее задание.
   `;
 
   if (profile.ai_provider === 'ollama') {
@@ -96,7 +91,6 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     };
 
     const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-    if (!response.ok) throw new Error(`AI API Error (${response.status})`);
     const result = await response.json();
     return isOpenAIStyle ? result.choices?.[0]?.message?.content : result.response;
   } else {
@@ -114,6 +108,6 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     });
 
     const result = await response.json();
-    return result.candidates?.[0]?.content?.parts?.[0]?.text || 'Ошибка генерации отчета';
+    return result.candidates?.[0]?.content?.parts?.[0]?.text || 'Не удалось сформировать отчет';
   }
 }
