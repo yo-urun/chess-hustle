@@ -1,6 +1,6 @@
 'use server';
 
-import { fetchUserGames, LichessGame } from './lichess';
+import { fetchUserGames, type LichessGame } from './lichess';
 import { callPythonAnalyst } from './python-analyst';
 import { updateGameTechnicalAnalysis } from './analysis-db';
 
@@ -32,7 +32,7 @@ export async function collectStudentData(
   }
 ) {
   const fetchLimit = Math.max(options.max, 100);
-  const rawGames: LichessGame[] = await fetchUserGames(username, { ...options, max: fetchLimit });
+  const rawGames = await fetchUserGames(username, { ...options, max: fetchLimit });
   
   return rawGames.map((g: LichessGame) => {
     const isWhite = g.players.white.user?.id === username.toLowerCase();
