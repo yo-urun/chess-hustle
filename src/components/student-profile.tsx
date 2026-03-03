@@ -16,11 +16,13 @@ import {
   History,
   Clock,
   Swords,
-  Layers
+  Layers,
+  CheckCircle2,
+  Zap
 } from "lucide-react"
 import { createLichessStudio, importPgnToStudio, sendLichessMessage } from "@/actions/lichess"
 import { collectStudentData, runBatchAnalysis } from "@/actions/analysis"
-import { saveAnalysis, getStudentAnalyses, SavedAnalysis, saveGamesBatch, getStudentGames, GameRecord } from "@/actions/analysis-db"
+import { saveAnalysis, getStudentAnalyses, SavedAnalysis, saveGamesBatch, getStudentGames, GameRecord, updateGameTechnicalAnalysis } from "@/actions/analysis-db"
 import { generateCoachingReport } from "@/actions/ai-coach"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,20 +33,17 @@ export function StudentProfile() {
   const { selectedStudent, selectStudent } = useApp()
   const [isCollecting, setIsCollecting] = useState(false)
   const [deepData, setDeepData] = useState<any[] | null>(null)
+  const [isTechnicalAnalyzing, setIsTechnicalAnalyzing] = useState(false)
   const [isAIAnalyzing, setIsAIAnalyzing] = useState(false)
   const [aiReport, setAiReport] = useState<string | null>(null)
   const [recommendedGames, setRecommendedGames] = useState<any[] | null>(null)
   const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([])
   const [storedGames, setStoredGames] = useState<GameRecord[]>([])
   
-  // Filter states
   const [perfType, setPerfType] = useState<string>("blitz")
   const [maxGames, setMaxGames] = useState<number>(20)
   const [color, setColor] = useState<"white" | "black" | "all">("all")
-  const [isDeepAnalysis, setIsDeepAnalysis] = useState(false)
-  
-  // Studio states
-  const [isCreatingStudio, setIsCreatingStudio] = useState(false)
+  const [isDeepAnalysis, setIsDeepAnalysis] = useState(true)
   const [studioUrl, setStudioUrl] = useState<string | null>(null)
 
   useEffect(() => {
@@ -65,13 +64,7 @@ export function StudentProfile() {
       setStoredGames(games);
       
       if (games.length > 0) {
-        setDeepData(games.map(g => ({
-          id: g.lichess_id,
-          opponent: g.metadata.opponent,
-          result: g.metadata.result,
-          pgn: g.pgn,
-          blunders: g.metadata.blunders || []
-        })));
+        syncDeepDataFromStored(games);
       }
     } catch (e) {
       console.error("Load error:", e);
@@ -80,10 +73,15 @@ export function StudentProfile() {
     }
   };
 
-  const loadSavedAnalyses = async () => {
-    if (!selectedStudent?.id) return;
-    const data = await getStudentAnalyses(selectedStudent.id);
-    setSavedAnalyses(data);
+  const syncDeepDataFromStored = (games: GameRecord[]) => {
+    setDeepData(games.map(g => ({
+      id: g.lichess_id,
+      opponent: g.metadata.opponent,
+      result: g.metadata.result,
+      pgn: g.pgn,
+      blunders: g.metadata.blunders || [],
+      technicalAnalysis: g.technical_analysis
+    })));
   };
 
   if (!selectedStudent) return null
@@ -92,17 +90,11 @@ export function StudentProfile() {
     if (!selectedStudent?.id) return;
     setIsCollecting(true);
     try {
-      const options: any = {
-        max: maxGames,
-        perfType: perfType,
-      };
-      
-      if (color !== "all") {
-        options.color = color;
-      }
+      const options: any = { max: maxGames, perfType: perfType };
+      if (color !== "all") options.color = color;
 
       const data = await collectStudentData(selectedStudent.nickname, options);
-      // Сохраняем загруженные партии в БД
+      
       if (data.length > 0 && selectedStudent.id) {
         const studentId = selectedStudent.id; 
         try {
@@ -116,18 +108,14 @@ export function StudentProfile() {
               blunders: g.blunders
             }
           })));
-
-          const games = await getStudentGames(studentId);
-          setStoredGames(games);
+          const updatedGames = await getStudentGames(studentId);
+          setStoredGames(updatedGames);
+          syncDeepDataFromStored(updatedGames);
         } catch (dbError: any) {
-          console.error('[Database Error] Failed to save games:', dbError);
-          // Показываем предупреждение, но продолжаем работу (партии останутся в памяти для текущей сессии)
-          alert('Внимание: партии загружены из Lichess, но не удалось сохранить их в базу данных. Проверьте SQL-схему в Supabase.');
+          console.error('[DB Error]', dbError);
+          setDeepData(data);
         }
       }
-
-      
-      setDeepData(data);
     } catch (error: any) {
       alert('Ошибка при сборе истории: ' + error.message);
     } finally {
@@ -135,22 +123,80 @@ export function StudentProfile() {
     }
   };
 
-  const handlePythonAnalysis = async () => {
-    if (!deepData || deepData.length === 0 || !selectedStudent?.id || !selectedStudent?.nickname) {
-      alert('Сначала загрузите партии!');
-      return;
-    }
-    setIsAIAnalyzing(true);
+  // ШАГ 1: Технический анализ (Stockfish)
+  const handleTechnicalPrep = async () => {
+    if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
+    
+    setIsTechnicalAnalyzing(true);
     try {
-      const pgns = deepData.map(g => g.pgn).filter(Boolean);
+      // Берем первые 10 партий, у которых еще нет тех. анализа
+      const toAnalyze = deepData.filter(g => !g.technicalAnalysis).slice(0, 10);
+      
+      if (toAnalyze.length === 0) {
+        alert('Все выбранные партии уже подготовлены!');
+        return;
+      }
+
+      const pgns = toAnalyze.map(g => g.pgn);
       const result = await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, pgns, isDeepAnalysis);
       
-      setRecommendedGames(result.analyses.slice(0, 3));
-      const report = await generateCoachingReport(selectedStudent.nickname, result.analyses, true);
-      setAiReport(report);
-      loadSavedAnalyses();
+      // Сохраняем результаты каждого анализа в БД
+      for (const analysis of result.analyses) {
+        await updateGameTechnicalAnalysis(analysis.game_id, selectedStudent.id, analysis);
+      }
+
+      // Обновляем локальное состояние
+      const updatedGames = await getStudentGames(selectedStudent.id);
+      setStoredGames(updatedGames);
+      syncDeepDataFromStored(updatedGames);
+      
+      alert(`Подготовлено ${result.analyses.length} партий. Теперь можно делать ИИ-отчет.`);
     } catch (error: any) {
-      alert(error.message || 'Ошибка при работе Python-аналитика.');
+      alert('Ошибка при подготовке данных: ' + error.message);
+    } finally {
+      setIsTechnicalAnalyzing(false);
+    }
+  };
+
+  // ШАГ 2: LLM Анализ
+  const handleAiReport = async () => {
+    if (!deepData || !selectedStudent?.id) return;
+    
+    // Берем только те партии, у которых есть технический анализ
+    const readyGames = deepData.filter(g => g.technicalAnalysis).map(g => g.technicalAnalysis);
+    
+    if (readyGames.length === 0) {
+      alert('Сначала подготовьте данные хотя бы для одной партии!');
+      return;
+    }
+
+    setIsAIAnalyzing(true);
+    try {
+      // Сортируем по интересности перед отправкой
+      const sortedAnalyses = [...readyGames].sort((a, b) => b.summary.interest_score - a.summary.interest_score);
+      setRecommendedGames(sortedAnalyses.slice(0, 3));
+
+      const report = await generateCoachingReport(selectedStudent.nickname, sortedAnalyses, true);
+      setAiReport(report);
+
+      // Сохраняем отчет с метаданными
+      await saveAnalysis({
+        student_id: selectedStudent.id,
+        pgn: sortedAnalyses.map(a => a.pgn).join('\n\n'),
+        analysis_data: sortedAnalyses,
+        report: report,
+        analysis_type: isDeepAnalysis ? 'deep' : 'surface',
+        metadata: {
+          game_count: readyGames.length,
+          perf_type: perfType,
+          date_range: new Date().toLocaleDateString()
+        }
+      });
+
+      const analyses = await getStudentAnalyses(selectedStudent.id);
+      setSavedAnalyses(analyses);
+    } catch (error: any) {
+      alert('Ошибка при генерации отчета: ' + error.message);
     } finally {
       setIsAIAnalyzing(false);
     }
@@ -163,21 +209,15 @@ export function StudentProfile() {
       const studioName = `Разбор для ${selectedStudent.nickname} (${new Date().toLocaleDateString()})`;
       const { id: studioId } = await createLichessStudio(studioName);
       const url = `https://lichess.org/study/${studioId}`;
-
       for (const game of deepData) {
-        let annotatedPgn = game.pgn;
-        if (game.blunders && game.blunders.length > 0) {
-          annotatedPgn += ` { Найдено ошибок: ${game.blunders.length} }`;
-        }
-        await importPgnToStudio(studioId, annotatedPgn, `vs ${game.opponent}`);
+        await importPgnToStudio(studioId, game.pgn, `vs ${game.opponent}`);
       }
-
-      const message = `Привет! Я подготовил для тебя обучающую студию с разбором твоих последних ошибок: ${url}`;
+      const message = `Привет! Я подготовил студию: ${url}`;
       await sendLichessMessage(selectedStudent.nickname, message);
       setStudioUrl(url);
-      alert('Студия создана и ссылка отправлена ученику!');
+      alert('Студия отправлена!');
     } catch (error: any) {
-      alert('Ошибка при создании студии: ' + error.message);
+      alert('Ошибка студии: ' + error.message);
     } finally {
       setIsCreatingStudio(false);
     }
@@ -202,23 +242,18 @@ export function StudentProfile() {
           </div>
           <div className="flex-1">
             <h1 className="text-4xl font-black tracking-tight">{selectedStudent.nickname}</h1>
-            <p className="text-[#666] mt-1 font-medium italic">Персонализированный шахматный коучинг</p>
+            <p className="text-[#666] mt-1 font-medium italic">Двухэтапный ИИ-Анализ</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/5">
           <div className="space-y-2">
-            <Label className="text-xs text-[#888] uppercase tracking-wider">Контроль времени</Label>
+            <Label className="text-xs text-[#888] uppercase tracking-wider">Контроль</Label>
             <RadioGroup value={perfType} onValueChange={setPerfType} className="flex gap-2">
               {['bullet', 'blitz', 'rapid'].map((t) => (
                 <div key={t} className="flex items-center space-x-2">
                   <RadioGroupItem value={t} id={t} className="sr-only" />
-                  <Label
-                    htmlFor={t}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                      perfType === t ? 'bg-[#4fc3f7] text-black' : 'bg-[#1f1f1f] text-[#888] hover:text-[#e0e0e0]'
-                    }`}
-                  >
+                  <Label htmlFor={t} className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${perfType === t ? 'bg-[#4fc3f7] text-black' : 'bg-[#1f1f1f] text-[#888]'}`}>
                     {t.charAt(0).toUpperCase() + t.slice(1)}
                   </Label>
                 </div>
@@ -227,49 +262,16 @@ export function StudentProfile() {
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs text-[#888] uppercase tracking-wider">Цвет фигур</Label>
-            <RadioGroup value={color} onValueChange={(v: any) => setColor(v)} className="flex gap-2">
-              {['all', 'white', 'black'].map((c) => (
-                <div key={c} className="flex items-center space-x-2">
-                  <RadioGroupItem value={c} id={`color-${c}`} className="sr-only" />
-                  <Label
-                    htmlFor={`color-${c}`}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                      color === c ? 'bg-[#4fc3f7] text-black' : 'bg-[#1f1f1f] text-[#888] hover:text-[#e0e0e0]'
-                    }`}
-                  >
-                    {c === 'all' ? 'Все' : c === 'white' ? 'Белые' : 'Черные'}
-                  </Label>
-                </div>
-              ))}
-            </RadioGroup>
+            <Label className="text-xs text-[#888] uppercase tracking-wider">Кол-во партий</Label>
+            <Input type="number" value={maxGames} onChange={(e) => setMaxGames(parseInt(e.target.value) || 20)} className="h-8 w-20 bg-[#1f1f1f] border-[#333] text-xs" min={1} max={50} />
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-xs text-[#888] uppercase tracking-wider">Количество партий</Label>
-            <div className="flex items-center gap-2">
-              <Input 
-                type="number" 
-                value={maxGames} 
-                onChange={(e) => setMaxGames(parseInt(e.target.value) || 20)}
-                className="h-8 w-20 bg-[#1f1f1f] border-[#333] text-xs"
-                min={1}
-                max={50}
-              />
-              <span className="text-[10px] text-[#666]">(макс. 50)</span>
-            </div>
+          <div className="flex items-end">
+            <Button onClick={handleDeepCollect} disabled={isCollecting} className="w-full h-10 rounded-xl bg-[#4fc3f7] text-black hover:bg-[#4fc3f7]/90 font-bold">
+              {isCollecting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}
+              Загрузить из Lichess
+            </Button>
           </div>
-        </div>
-
-        <div className="flex gap-2 mt-2">
-          <Button
-            onClick={handleDeepCollect}
-            disabled={isCollecting}
-            className="flex-1 h-12 rounded-xl bg-[#4fc3f7] text-black hover:bg-[#4fc3f7]/90 font-bold"
-          >
-            {isCollecting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Database className="w-5 h-5 mr-2" />}
-            {isCollecting ? 'Загрузка...' : 'Загрузить новые партии'}
-          </Button>
         </div>
       </div>
 
@@ -277,25 +279,24 @@ export function StudentProfile() {
         <div className="bg-[#2a2a2a] border border-blue-500/20 p-6 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-black text-blue-400 uppercase tracking-wider flex items-center gap-2">
-              <Layers className="w-4 h-4" /> Партий в выборке: {deepData.length}
+              <Layers className="w-4 h-4" /> Партий в текущем фильтре: {deepData.length}
             </h3>
-            <span className="text-[10px] text-[#666]">({storedGames.length} всего в базе)</span>
+            <span className="text-[10px] text-[#666]">Всего в базе: {storedGames.length}</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
             {deepData.map((game) => (
-              <div key={game.id} className="bg-[#1f1f1f] p-3 rounded-xl border border-[#333] flex items-center justify-between">
+              <div key={game.id} className={`p-3 rounded-xl border flex items-center justify-between ${game.technicalAnalysis ? 'bg-[#1f1f1f] border-green-500/30' : 'bg-[#1f1f1f] border-[#333]'}`}>
                 <div className="flex flex-col">
-                  <span className="text-xs font-bold">vs {game.opponent}</span>
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    {game.technicalAnalysis && <CheckCircle2 className="w-3 h-3 text-green-500" />}
+                    vs {game.opponent}
+                  </span>
                   <span className={`text-[10px] font-bold ${game.result === 'Win' ? 'text-green-500' : game.result === 'Loss' ? 'text-red-500' : 'text-gray-500'}`}>
-                    {game.result}
+                    {game.result} {game.technicalAnalysis && `• Интерес: ${game.technicalAnalysis.summary.interest_score.toFixed(1)}`}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {game.blunders && game.blunders.length > 0 && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 border border-red-500/20">
-                      {game.blunders.length} зевков
-                    </span>
-                  )}
+                  {!game.technicalAnalysis && <Zap className="w-3 h-3 text-yellow-500/50" title="Требуется подготовка" />}
                   <ExternalLink className="w-3 h-3 text-[#444]" />
                 </div>
               </div>
@@ -305,91 +306,52 @@ export function StudentProfile() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-[#2a2a2a] border border-[#333] p-8 rounded-3xl flex flex-col gap-6">
+        {/* ШАГ 1: Stockfish */}
+        <div className="bg-[#2a2a2a] border border-[#333] p-8 rounded-3xl flex flex-col gap-6 relative overflow-hidden group">
           <div className="flex items-center gap-3">
-            <BrainCircuit className="w-6 h-6 text-[#4fc3f7]" />
-            <h2 className="text-xl font-bold">Интеллектуальный Анализ</h2>
+            <Zap className="w-6 h-6 text-yellow-500" />
+            <h2 className="text-xl font-bold">1. Подготовка данных</h2>
           </div>
           <p className="text-sm text-[#888] leading-relaxed">
-            Глубокий разбор 9 шахматных параметров с использованием ИИ. Сохраняется в базу для истории.
+            Анализ Stockfish и Python-chess. Обязательный этап перед ИИ-отчетом. Партии сохраняются в базу.
           </p>
-          
           <div className="flex items-center gap-2 p-3 rounded-xl bg-[#1f1f1f] border border-[#333]">
-            <input
-              type="checkbox"
-              id="deep-analysis-toggle"
-              checked={isDeepAnalysis}
-              onChange={(e) => setIsDeepAnalysis(e.target.checked)}
-              className="w-4 h-4 rounded border-white/10 bg-white/5 text-[#4fc3f7] focus:ring-[#4fc3f7]"
-            />
-            <Label htmlFor="deep-analysis-toggle" className="text-xs text-[#888] cursor-pointer hover:text-[#e0e0e0] flex-1">
-              Глубокая оценка (Lichess Cloud Eval)
-            </Label>
+            <input type="checkbox" id="deep-prep" checked={isDeepAnalysis} onChange={(e) => setIsDeepAnalysis(e.target.checked)} className="w-4 h-4 rounded text-[#4fc3f7]" />
+            <Label htmlFor="deep-prep" className="text-xs text-[#888] cursor-pointer">Глубокий Stockfish (Lichess Cloud)</Label>
           </div>
-
-          <button
-            onClick={handlePythonAnalysis}
-            disabled={!deepData || deepData.length === 0 || isAIAnalyzing}
-            className={`mt-auto flex items-center justify-center gap-2 py-4 rounded-2xl text-sm font-bold transition-all disabled:opacity-30 ${
-              isDeepAnalysis
-                ? 'bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/30 text-purple-400 hover:border-purple-500/50'
-                : 'bg-[#1f1f1f] border border-[#333] hover:border-[#4fc3f7] text-[#e0e0e0]'
-            }`}
-          >
-            {isAIAnalyzing ? <Loader2 className="w-4 h-4 animate-spin text-[#4fc3f7]" /> : <Sparkles className="w-4 h-4 text-[#4fc3f7]" />}
-            {isAIAnalyzing ? 'Обработка данных...' : 'Запустить ИИ-Анализ'}
-          </button>
+          <Button onClick={handleTechnicalPrep} disabled={!deepData || isTechnicalAnalyzing} className="mt-auto py-6 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 hover:bg-yellow-500/20 font-bold">
+            {isTechnicalAnalyzing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
+            {isTechnicalAnalyzing ? 'Анализ партий (10 шт)...' : 'Запустить Stockfish'}
+          </Button>
         </div>
 
-        <div className="bg-[#2a2a2a] border border-[#333] p-8 rounded-3xl flex flex-col gap-6">
+        {/* ШАГ 2: LLM */}
+        <div className="bg-[#2a2a2a] border border-[#333] p-8 rounded-3xl flex flex-col gap-6 relative overflow-hidden group">
           <div className="flex items-center gap-3">
-            <MessageSquareShare className="w-6 h-6 text-green-400" />
-            <h2 className="text-xl font-bold">Lichess Студия</h2>
+            <BrainCircuit className="w-6 h-6 text-[#4fc3f7]" />
+            <h2 className="text-xl font-bold">2. ИИ-Аналитика</h2>
           </div>
           <p className="text-sm text-[#888] leading-relaxed">
-            Создать учебник на Lichess из загруженных партий и отправить ученику.
+            Генерация глубокого отчета тренера на основе подготовленных данных Stockfish.
           </p>
-          <button
-            onClick={handleCreateStudio}
-            disabled={!deepData || deepData.length === 0 || isCreatingStudio}
-            className="mt-auto flex items-center justify-center gap-2 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500/20 py-4 rounded-2xl text-sm font-bold transition-all disabled:opacity-30"
-          >
-            {isCreatingStudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquareShare className="w-4 h-4" />}
-            {isCreatingStudio ? 'Создаю...' : 'Создать и отправить'}
-          </button>
+          <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/10 text-[10px] text-blue-400 font-mono">
+            Готово к отчету: {deepData?.filter(g => g.technicalAnalysis).length || 0} партий
+          </div>
+          <Button onClick={handleAiReport} disabled={!deepData || isAIAnalyzing} className="mt-auto py-6 rounded-2xl bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 text-[#4fc3f7] hover:border-blue-500/50 font-bold">
+            {isAIAnalyzing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Sparkles className="w-4 h-4 mr-2" />}
+            {isAIAnalyzing ? 'Пишу отчет...' : 'Создать ИИ-Отчет'}
+          </Button>
         </div>
       </div>
 
-      {recommendedGames && recommendedGames.length > 0 && (
-        <div className="bg-[#1a1a1a] border border-yellow-500/20 p-8 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <h3 className="text-sm font-black text-yellow-500 uppercase tracking-wider mb-6 flex items-center gap-2">
-            <Sparkles className="w-4 h-4" /> Рекомендуемые партии к разбору
-          </h3>
-          <div className="grid grid-cols-1 gap-4">
-            {recommendedGames.map((game, i) => (
-              <div key={i} className="bg-[#2a2a2a] p-4 rounded-2xl border border-[#333] flex justify-between items-center group hover:border-yellow-500/40 transition-all">
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-bold">vs {game.summary.is_white ? game.game_info.black : game.game_info.white} ({game.game_info.result})</span>
-                  <span className="text-[10px] text-[#888] font-mono">{game.game_info.opening} • {game.summary.total_moves} ходов</span>
-                  <div className="flex gap-2 mt-1">
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-500 font-bold">Интерес: {game.summary.interest_score.toFixed(1)}</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 font-bold">Зевки: {game.summary.blunders}</span>
-                  </div>
-                </div>
-                <a href={game.game_info.url} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-[#1f1f1f] group-hover:bg-yellow-500/20 text-[#666] group-hover:text-yellow-500 transition-all">
-                  <ExternalLink className="w-5 h-5" />
-                </a>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {aiReport && (
         <div className="bg-[#2a2a2a] border border-[#4fc3f7]/20 p-10 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <h3 className="text-xs font-black text-[#4fc3f7] uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
-            <BrainCircuit className="w-4 h-4" /> Отчет ИИ-Аналитика
-          </h3>
+          <div className="flex justify-between items-start mb-6">
+            <h3 className="text-xs font-black text-[#4fc3f7] uppercase tracking-[0.2em] flex items-center gap-2">
+              <BrainCircuit className="w-4 h-4" /> ИИ-Коучинг (на базе {recommendedGames?.length} игр)
+            </h3>
+            <span className="text-[10px] text-[#666]">{new Date().toLocaleString()}</span>
+          </div>
           <div className="text-lg leading-relaxed text-[#e0e0e0]/90 whitespace-pre-wrap font-serif">
             {aiReport}
           </div>
@@ -399,45 +361,23 @@ export function StudentProfile() {
       {savedAnalyses.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-[#888] flex items-center gap-2">
-            <Clock className="w-4 h-4" /> Предыдущие анализы
+            <Clock className="w-4 h-4" /> Архив ИИ-Отчетов
           </h3>
           <div className="grid grid-cols-1 gap-3">
             {savedAnalyses.map((analysis: any) => (
-              <div
-                key={analysis.id}
-                className="bg-[#2a2a2a] border border-[#333] p-4 rounded-2xl hover:border-[#4fc3f7]/30 cursor-pointer transition-all group"
-                onClick={() => setAiReport(analysis.report)}
-              >
+              <div key={analysis.id} className="bg-[#2a2a2a] border border-[#333] p-4 rounded-2xl hover:border-[#4fc3f7]/30 cursor-pointer transition-all group" onClick={() => setAiReport(analysis.report)}>
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium">Анализ от {new Date(analysis.created_at).toLocaleString()}</span>
-                    {analysis.analysis_type && (
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                        analysis.analysis_type === 'deep'
-                          ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                          : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                      }`}>
-                        {analysis.analysis_type === 'deep' ? 'Глубокий' : 'Поверхностный'}
-                      </span>
-                    )}
+                    <span className="text-sm font-medium">Отчет от {new Date(analysis.created_at).toLocaleDateString()}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase font-bold">
+                      {analysis.metadata?.game_count || 0} партий • {analysis.metadata?.perf_type || 'chess'}
+                    </span>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-[#666] group-hover:text-[#4fc3f7] transition-colors" />
+                  <ChevronRight className="w-4 h-4 text-[#666] group-hover:text-[#4fc3f7]" />
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {studioUrl && (
-        <div className="bg-green-500/5 border border-green-500/20 p-6 rounded-2xl flex items-center justify-between">
-          <div className="flex items-center gap-3 text-green-400">
-            <Puzzle className="w-5 h-5" />
-            <span className="text-sm font-bold">Студия успешно создана!</span>
-          </div>
-          <a href={studioUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-green-400 underline flex items-center gap-1">
-            Открыть Студию <ExternalLink className="w-4 h-4" />
-          </a>
         </div>
       )}
     </div>

@@ -12,6 +12,11 @@ export interface SavedAnalysis {
   analysis_data: any;
   report: string;
   analysis_type?: 'deep' | 'surface';
+  metadata?: {
+    game_count: number;
+    perf_type: string;
+    date_range?: string;
+  };
   created_at: string;
 }
 
@@ -22,6 +27,7 @@ export interface GameRecord {
   coach_id: string;
   pgn: string;
   metadata: any;
+  technical_analysis?: any;
   created_at?: string;
 }
 
@@ -54,6 +60,7 @@ export async function saveAnalysis(data: {
   analysis_data: any;
   report: string;
   analysis_type?: 'deep' | 'surface';
+  metadata?: any;
 }) {
   const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
@@ -116,6 +123,16 @@ export async function saveGamesBatch(games: Omit<GameRecord, 'id' | 'coach_id' |
   }
 
   return data;
+}
+
+export async function updateGameTechnicalAnalysis(lichessId: string, studentId: string, technicalData: any) {
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('games')
+    .update({ technical_analysis: technicalData })
+    .match({ lichess_id: lichessId, student_id: studentId });
+
+  if (error) throw error;
 }
 
 export async function getStudentGames(studentId: string) {
