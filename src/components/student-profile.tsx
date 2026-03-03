@@ -64,7 +64,6 @@ export function StudentProfile() {
       setSavedAnalyses(analyses);
       setStoredGames(games);
       
-      // Если есть сохраненные игры, отобразим их как текущую выборку
       if (games.length > 0) {
         setDeepData(games.map(g => ({
           id: g.lichess_id,
@@ -90,6 +89,7 @@ export function StudentProfile() {
   if (!selectedStudent) return null
 
   const handleDeepCollect = async () => {
+    if (!selectedStudent?.id) return;
     setIsCollecting(true);
     try {
       const options: any = {
@@ -103,11 +103,11 @@ export function StudentProfile() {
 
       const data = await collectStudentData(selectedStudent.nickname, options);
       
-      // Сохраняем загруженные партии в БД
-      if (data.length > 0) {
+      if (data.length > 0 && selectedStudent.id) {
+        const studentId = selectedStudent.id; // Type narrowing
         await saveGamesBatch(data.map(g => ({
           lichess_id: g.id,
-          student_id: selectedStudent.id,
+          student_id: studentId,
           pgn: g.pgn,
           metadata: {
             opponent: g.opponent,
@@ -116,8 +116,7 @@ export function StudentProfile() {
           }
         })));
         
-        // Обновляем список сохраненных игр
-        const games = await getStudentGames(selectedStudent.id);
+        const games = await getStudentGames(studentId);
         setStoredGames(games);
       }
       
@@ -179,18 +178,16 @@ export function StudentProfile() {
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 flex flex-col gap-8 text-[#e0e0e0]">
-      {/* Навигация */}
       <div className="flex items-center justify-between">
         <button onClick={() => selectStudent(null)} className="flex items-center gap-1.5 text-sm text-[#888] hover:text-[#e0e0e0] transition-colors group">
           <ArrowLeft className="h-4 w-4 group-hover:-translate-x-0.5 transition-transform" />
           Назад к списку
         </button>
-        <a href={`https://lichess.org/@/${selectedStudent.nickname}`} target="_blank" className="text-xs text-[#4fc3f7] hover:underline flex items-center gap-1">
+        <a href={`https://lichess.org/@/${selectedStudent.nickname}`} target="_blank" rel="noopener noreferrer" className="text-xs text-[#4fc3f7] hover:underline flex items-center gap-1">
           Lichess Профиль <ExternalLink className="h-3 w-3" />
         </a>
       </div>
 
-      {/* Header */}
       <div className="flex flex-col gap-6 bg-[#2a2a2a] p-8 rounded-3xl border border-[#333]">
         <div className="flex items-center gap-6">
           <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-[#4fc3f7]/10 text-[#4fc3f7] text-3xl font-bold border border-[#4fc3f7]/20 shadow-inner">
@@ -202,7 +199,6 @@ export function StudentProfile() {
           </div>
         </div>
 
-        {/* Фильтры */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/5">
           <div className="space-y-2">
             <Label className="text-xs text-[#888] uppercase tracking-wider">Контроль времени</Label>
@@ -248,7 +244,7 @@ export function StudentProfile() {
               <Input 
                 type="number" 
                 value={maxGames} 
-                onChange={(e) => setMaxGames(parseInt(e.target.value))}
+                onChange={(e) => setMaxGames(parseInt(e.target.value) || 20)}
                 className="h-8 w-20 bg-[#1f1f1f] border-[#333] text-xs"
                 min={1}
                 max={50}
@@ -270,7 +266,6 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Список загруженных партий (Метаданные) */}
       {deepData && deepData.length > 0 && (
         <div className="bg-[#2a2a2a] border border-blue-500/20 p-6 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center justify-between mb-4">
@@ -374,7 +369,7 @@ export function StudentProfile() {
                     <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400 font-bold">Зевки: {game.summary.blunders}</span>
                   </div>
                 </div>
-                <a href={game.game_info.url} target="_blank" className="p-2 rounded-xl bg-[#1f1f1f] group-hover:bg-yellow-500/20 text-[#666] group-hover:text-yellow-500 transition-all">
+                <a href={game.game_info.url} target="_blank" rel="noopener noreferrer" className="p-2 rounded-xl bg-[#1f1f1f] group-hover:bg-yellow-500/20 text-[#666] group-hover:text-yellow-500 transition-all">
                   <ExternalLink className="w-5 h-5" />
                 </a>
               </div>
@@ -433,7 +428,7 @@ export function StudentProfile() {
             <Puzzle className="w-5 h-5" />
             <span className="text-sm font-bold">Студия успешно создана!</span>
           </div>
-          <a href={studioUrl} target="_blank" className="text-sm font-bold text-green-400 underline flex items-center gap-1">
+          <a href={studioUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-green-400 underline flex items-center gap-1">
             Открыть Студию <ExternalLink className="w-4 h-4" />
           </a>
         </div>
