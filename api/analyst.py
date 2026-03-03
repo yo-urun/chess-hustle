@@ -27,7 +27,6 @@ def get_material_value(board: chess.Board) -> int:
     black = sum(len(board.pieces(pt, chess.BLACK)) * val for pt, val in values.items())
     return white - black
 
-# --- Professional Tactic Classifier (Enhanced with Chess Tutor ideas) ---
 class TacticClassifier:
     def __init__(self, board: chess.Board):
         self.board = board
@@ -35,7 +34,7 @@ class TacticClassifier:
     def classify(self, move: chess.Move) -> List[str]:
         tactics = []
         try:
-            # 1. Checks & Discovered Attacks (Enhanced)
+            # Check for checks
             if self.board.gives_check(move):
                 self.board.push(move)
                 checkers = self.board.checkers()
@@ -46,51 +45,20 @@ class TacticClassifier:
                     tactics.append("check")
                 self.board.pop()
 
-            # 2. Geometry: Fork, Pin, Skewer, X-Ray
+            # Geometry checks
             self.board.push(move)
             sq = move.to_square
             p = self.board.piece_at(sq)
             if p:
-                # Fork Detector
                 attacks = self.board.attacks(sq)
                 targets = [self.board.piece_at(tsq) for tsq in attacks if self.board.piece_at(tsq) and self.board.piece_at(tsq).color != p.color]
                 valuable = [t for t in targets if t.piece_type in [chess.ROOK, chess.QUEEN, chess.KING, chess.BISHOP, chess.KNIGHT]]
                 if len(valuable) >= 2: tactics.append("fork")
                 
-                # Linear tactics (Pin/Skewer)
                 if p.piece_type in [chess.BISHOP, chess.ROOK, chess.QUEEN]:
                     if self._check_linear(sq, p.color): tactics.append("linearAttack")
             
-            # 3. Overloading (Перегрузка) - NEW
-            # Check if an opponent piece is defending multiple attacked pieces
-            opp_color = not self.board.turn
-            for o_sq in chess.SQUARES:
-                o_p = self.board.piece_at(o_sq)
-                if o_p and o_p.color == opp_color:
-                    defended_sqs = self.board.attacks(o_sq)
-                    attacked_and_defended = 0
-                    for d_sq in defended_sqs:
-                        d_p = self.board.piece_at(d_sq)
-                        if d_p and d_p.color == opp_color:
-                            # Is this piece also attacked by us?
-                            if self.board.is_attacked_by(not opp_color, d_sq):
-                                attacked_and_defended += 1
-                    if attacked_and_defended >= 2:
-                        tactics.append("overloading")
-                        break
-
-            # 4. Back Rank Weakness - NEW
-            if self._check_back_rank(not self.board.turn):
-                tactics.append("backRankWeakness")
-
-            # 5. Piece Status: Hanging or Trapped
-            if self.board.is_capture(move):
-                self.board.pop()
-                if not self.board.is_attacked_by(not self.board.turn, move.to_square):
-                    tactics.append("hangingPiece")
-                self.board.push(move)
-
-            # Trapped Piece
+            # Trapped Piece check
             opp = not self.board.turn
             for o_sq in chess.SQUARES:
                 o_p = self.board.piece_at(o_sq)
@@ -101,7 +69,6 @@ class TacticClassifier:
                         if len(safe_moves) == 0:
                             tactics.append("trappedPiece")
                             break
-
             self.board.pop()
         except: pass
         return list(set(tactics))
@@ -117,38 +84,6 @@ class TacticClassifier:
                 self.board.set_piece_at(sq, original)
         return False
 
-    def _check_back_rank(self, color: chess.Color) -> bool:
-        king_sq = self.board.king(color)
-        if not king_sq: return False
-        rank = chess.square_rank(king_sq)
-        if rank not in [0, 7]: return False
-        
-        # Check if trapped by own pawns
-        direction = 1 if color == chess.WHITE else -1
-        pawn_rank = rank + direction
-        if not (0 <= pawn_rank <= 7): return False
-        
-        file = chess.square_file(king_sq)
-        is_trapped = True
-        for df in [-1, 0, 1]:
-            nf = file + df
-            if 0 <= nf <= 7:
-                sq = chess.square(nf, pawn_rank)
-                p = self.board.piece_at(sq)
-                if not (p and p.piece_type == chess.PAWN and p.color == color):
-                    is_trapped = False
-                    break
-        
-        if is_trapped:
-            # Check if major piece attacks this rank
-            enemy_color = not color
-            for sq in self.board.pieces(chess.ROOK, enemy_color) | self.board.pieces(chess.QUEEN, enemy_color):
-                if any(chess.square_rank(target) == rank for target in self.board.attacks(sq)):
-                    return True
-        return False
-
-# --- Core Analysis Engine ---
-
 def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None, manual_id: str = None) -> Dict[str, Any]:
     game_id = manual_id or "unknown"
     try:
@@ -157,9 +92,7 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
         if not game: return {"game_id": game_id, "error": "Invalid PGN"}
 
         headers = game.headers
-        white_name = headers.get("White", "Unknown")
-        black_name = headers.get("Black", "Unknown")
-        is_white = white_name.lower() == username.lower()
+        is_white = headers.get("White", "").lower() == username.lower()
         board = game.board()
         moves = list(game.mainline_moves())
         
@@ -172,7 +105,7 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
 
         for i, move in enumerate(moves):
             move_num = i + 1
-            player_turn = (i % 2 == 0)
+            player_turn = (i % 2 == 0) # True = White
             is_player_move = (player_turn == is_white)
             
             curr_eval = None
@@ -201,6 +134,8 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
                 except: pass
 
             curr_material = get_material_value(board)
+            # Eval perspective adjustment: positive is White advantage
+            # Move quality delta for the person who JUST MOVED
             e_delta = (curr_eval - prev_eval) if player_turn else -(curr_eval - prev_eval)
             m_delta = (curr_material - prev_material) if player_turn else -(curr_material - prev_material)
 
@@ -219,6 +154,7 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
             }
 
             if is_player_move:
+                # If player delta is highly negative, it's a blunder/mistake
                 if e_delta < -1.5: annotation["severity"] = "blunder"
                 elif e_delta < -0.8: annotation["severity"] = "mistake"
                 if missed_tactics: annotation["missed_tactics"] = missed_tactics
@@ -237,7 +173,7 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
                 "missed_tactics": len([m for m in analysis_map.values() if m.get("missed_tactics")]),
                 "brilliant_moves": len([m for m in analysis_map.values() if "sacrifice" in m.get("tactics", [])])
             },
-            "game_info": { "White": white_name, "Black": black_name, "Result": headers.get("Result"), "Site": headers.get("Site") }
+            "game_info": { "White": headers.get("White"), "Black": headers.get("Black"), "Result": headers.get("Result"), "Site": headers.get("Site") }
         }
     except Exception as e:
         return {"game_id": game_id, "error": str(e)}
