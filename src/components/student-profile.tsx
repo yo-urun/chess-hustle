@@ -105,7 +105,7 @@ export function StudentProfile() {
   // Инициализация выборки (deepData) только при смене фильтров или загрузке
   useEffect(() => {
     if (filteredGames.length > 0) {
-      setDeepData(filteredGames.map(g => ({
+      const mapped = filteredGames.map(g => ({
         id: g.lichess_id,
         opponent: g.metadata?.opponent,
         result: g.metadata?.result,
@@ -113,7 +113,8 @@ export function StudentProfile() {
         evals: g.metadata?.evals || [],
         technicalAnalysis: g.technical_analysis,
         perfType: g.metadata?.perf_type
-      })));
+      }));
+      setDeepData(mapped);
     } else {
       setDeepData(null);
     }
@@ -160,6 +161,7 @@ export function StudentProfile() {
 
   const handleTechnicalPrep = async () => {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
+    
     const unanalyzed = deepData.filter(g => !g.technicalAnalysis);
     if (unanalyzed.length === 0) {
       alert('Все партии в текущей выборке уже подготовлены.');
@@ -167,7 +169,7 @@ export function StudentProfile() {
     }
 
     setIsTechnicalAnalyzing(true);
-    if (!poolRef.current) poolRef.current = new StockfishPool(4);
+    if (!poolRef.current) poolRef.current = new StockfishPool(2);
 
     try {
       setAnalysisProgress("Параллельный анализ...");
@@ -175,11 +177,16 @@ export function StudentProfile() {
         setAnalysisProgress(status);
       });
 
+      setAnalysisProgress("Синхронизация...");
       await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedResults);
+      
+      // КРИТИЧЕСКИ ВАЖНО: Ждем обновления базы и обновляем локальное состояние
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
+      
       alert('Техническая подготовка завершена.');
     } catch (error: any) {
+      console.error("Prep error:", error);
       alert('Ошибка подготовки: ' + error.message);
     } finally {
       setIsTechnicalAnalyzing(false);
@@ -189,9 +196,12 @@ export function StudentProfile() {
 
   const handleGenerateAiReport = async () => {
     if (!deepData || !selectedStudent?.id) return;
+    
+    // Берем ТОЛЬКО те, где technicalAnalysis реально существует в deepData
     const readyGames = deepData.filter(g => g.technicalAnalysis).map(g => g.technicalAnalysis);
+    
     if (readyGames.length === 0) {
-      alert('Сначала подготовьте данные!');
+      alert('Нет подготовленных данных! Сначала запустите "Подготовку".');
       return;
     }
 
@@ -242,6 +252,7 @@ export function StudentProfile() {
         </div>
       </div>
 
+      {/* Filter Panel */}
       <div className="bg-[#1a1a1a] border border-[#333] p-6 rounded-3xl shadow-xl flex flex-col gap-6 border-b-4 border-b-[#4fc3f7]/20">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="space-y-2">

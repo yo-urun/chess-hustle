@@ -39,28 +39,28 @@ export class StockfishPool {
           // Ensure engine is alive
           await engine.waitReady();
 
-          for (let i = 0; i < history.length; i++) {
-            tempChess.move(history[i].san);
+          for (let m = 0; m < history.length; m++) {
+            tempChess.move(history[m].san);
             
             // Smart Skip
-            const existing = game.evals?.find((e: any) => e.move === i + 1);
+            const existing = game.evals?.find((e: any) => e.move === m + 1);
             if (existing) {
               evals.push(existing);
               continue;
             }
 
-            onProgress(`Воркер ${wIdx + 1}: Партия против ${game.opponent} | Ход ${i + 1}/${history.length}`);
+            onProgress(`Воркер ${wIdx + 1}: Партия против ${game.opponent} | Ход ${m + 1}/${history.length}`);
             
             const result = await engine.evaluateFen(tempChess.fen(), 150);
             if (result.cp !== undefined || result.mate !== undefined) {
               evals.push({
-                move: i + 1,
+                move: m + 1,
                 eval: (result.cp ?? (result.mate! * 1000)) / 100.0,
                 bestMove: result.bestMove
               });
             }
           }
-          results.push({ ...game, evals: [...(game.evals || []), ...evals] });
+          results.push({ ...game, evals });
         } catch (err) {
           console.error(`[Worker ${wIdx}] Failed to analyze game:`, err);
           results.push(game); // Return raw game on failure
@@ -68,8 +68,9 @@ export class StockfishPool {
       }
     };
 
-    // Run 2 parallel workers max for stability
-    for (let i = 0; i < Math.min(this.engines.length, 2); i++) {
+    // Run parallel workers
+    const workerCount = Math.min(this.engines.length, queue.length, 2);
+    for (let i = 0; i < workerCount; i++) {
       activeTasks.push(worker(this.engines[i], i));
     }
 
