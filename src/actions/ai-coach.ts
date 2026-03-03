@@ -22,36 +22,44 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
 
   if (!profile) throw new Error('Профиль тренера не найден');
 
-  // Очищаем данные для промпта, чтобы уменьшить токены и дать ИИ ссылки
-  const minimalGamesData = gamesData.map(g => ({
-    id: g.game_id,
-    url: g.game_info?.url || `https://lichess.org/${g.game_id}`,
-    white: g.game_info?.white,
-    black: g.game_info?.black,
-    result: g.game_info?.result,
-    summary: g.summary,
-    eval_history: g.eval_history
-  }));
+  // Формируем ОЧЕНЬ СТРУКТУРИРОВАННЫЕ данные для ИИ
+  const technicalSummary = gamesData.map(g => {
+    const info = g.game_info || {};
+    const stats = g.summary || {};
+    const evals = g.eval_history || [];
+    
+    return {
+      game_id: g.game_id,
+      lichess_url: `https://lichess.org/${g.game_id}`,
+      opponent: info.white === studentNickname ? info.black : info.white,
+      result: info.result,
+      is_student_white: info.white === studentNickname,
+      stockfish_blunders_count: stats.blunders || 0,
+      interest_score: stats.interest_score || 0,
+      evaluation_swings: evals.map((e: any) => `Move ${e.move}: ${e.eval.toFixed(1)}`).join(', ')
+    };
+  });
 
   const prompt = `
-    Ты — элитный шахматный тренер. Твоя задача — составить профессиональный отчет для ученика ${studentNickname}.
+    ТЫ — ЭЛИТНЫЙ ШАХМАТНЫЙ ТРЕНЕР. ТВОЯ ЗАДАЧА — АНАЛИЗ ПАРТИЙ УЧЕНИКА ${studentNickname}.
+    
+    ОСНОВНОЕ ПРАВИЛО: Твой анализ ДОЛЖЕН СТРОГО ОПИРАТЬСЯ НА ДАННЫЕ STOCKFISH.
+    Если Stockfish показывает резкое падение оценки (evaluation_swings), ты ОБЯЗАН найти причину и указать на эту партию по ссылке.
     
     ИНСТРУКЦИИ ПО ФОРМАТУ:
-    1. НЕ используй Markdown заголовки (символы #, ##, ###).
-    2. НЕ используй жирный текст (**текст**) и курсив (*текст*). 
-    3. Вывод должен быть чистым текстом, разделенным на абзацы.
-    4. Когда ты ссылаешься на конкретную партию, ОБЯЗАТЕЛЬНО пиши её полную ссылку в формате (например: https://lichess.org/ABCDEFGH).
-    5. Используй формат [ход](pos:FEN) только если хочешь показать конкретную позицию на доске.
-    6. Пиши на русском языке, вдохновляюще и по делу.
+    - НЕ ИСПОЛЬЗУЙ Markdown (никаких #, ##, ###, **, *). 
+    - Разделяй текст только пустой строкой между абзацами.
+    - Обязательно давай прямые ссылки на партии Lichess в формате https://lichess.org/ID.
+    - Пиши на русском языке, профессионально и жестко по делу.
 
-    ДАННЫЕ ПАРТИЙ:
-    ${JSON.stringify(minimalGamesData, null, 2)}
+    ТЕХНИЧЕСКИЕ ДАННЫЕ ПАРТИЙ (ОТ STOCKFISH):
+    ${JSON.stringify(technicalSummary, null, 2)}
     
-    СТРУКТУРА ОТЧЕТА:
-    - Общий обзор игры ученика за текущий период.
-    - Анализ сильных сторон.
-    - Разбор ключевых ошибок с указанием конкретных партий (и их ссылок).
-    - Конкретные рекомендации и план работы.
+    СТРУКТУРА:
+    1. Общий вердикт по игре ученика за период.
+    2. Разбор критических ошибок (ссылайся на конкретные партии и их URL).
+    3. Почему Stockfish зафиксировал зевки? (Тактика, позиционный провал и т.д.).
+    4. Рекомендации по обучению.
   `;
 
   if (profile.ai_provider === 'ollama') {
@@ -72,33 +80,21 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     };
 
     const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-    
-    if (!response.ok) {
-      if (response.status === 401) throw new Error('Ошибка 401: Неверный API ключ для AI провайдера');
-      const errorText = await response.text();
-      throw new Error(`AI API Error (${response.status}): ${errorText || response.statusText}`);
-    }
-
+    if (!response.ok) throw new Error(`AI API Error (${response.status})`);
     const result = await response.json();
     return isOpenAIStyle ? result.choices?.[0]?.message?.content : result.response;
   } else {
-    // Gemini Direct Cloud
+    // Gemini Cloud
     const apiKey = profile.gemini_api_key || process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('API ключ Gemini не настроен.');
+    if (!apiKey) throw new Error('Gemini API key missing');
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
 
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(`Gemini Error: ${err.error?.message || 'Ошибка API'}`);
-    }
-
     const result = await response.json();
-    return result.candidates?.[0]?.content?.parts?.[0]?.text || 'Не удалось сгенерировать отчет';
+    return result.candidates?.[0]?.content?.parts?.[0]?.text || 'Ошибка генерации отчета';
   }
 }

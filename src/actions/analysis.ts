@@ -12,6 +12,7 @@ export interface GameDeepData {
   evals?: any[];
   technicalAnalysis?: any;
   blunders: any[];
+  perfType: string;
 }
 
 export async function runBatchAnalysis(
@@ -19,7 +20,6 @@ export async function runBatchAnalysis(
   username: string,
   games: { pgn: string; lichess_id: string; evals?: any[] }[]
 ) {
-  // Python analyst now takes PGN + Evals
   const payload = games.map(g => ({ pgn: g.pgn, evals: g.evals }));
   const result = await callPythonAnalyst(payload, username);
 
@@ -27,7 +27,6 @@ export async function runBatchAnalysis(
     throw new Error(result.error || 'Analysis failed');
   }
 
-  // Save results to DB
   for (const analysis of result.analyses) {
     await updateGameTechnicalAnalysis(analysis.game_id, studentId, analysis);
   }
@@ -49,13 +48,17 @@ export async function collectStudentData(
   
   return rawGames.map(g => {
     const isWhite = g.players.white.user?.id === username.toLowerCase();
+    // Извлекаем тип контроля из данных Lichess (speed или variant)
+    const perf = (g as any).speed || (g as any).perf || 'unknown';
+    
     return {
       id: g.id,
       opponent: isWhite ? g.players.black.user?.name : g.players.white.user?.name,
       result: g.winner === (isWhite ? 'white' : 'black') ? 'Win' : (g.winner ? 'Loss' : 'Draw'),
       pgn: g.pgn || '',
-      evals: g.analysis || [], // Передаем готовый анализ из Lichess
-      blunders: []
+      evals: g.analysis || [],
+      blunders: [],
+      perfType: perf
     };
   });
 }

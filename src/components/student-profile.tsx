@@ -80,22 +80,26 @@ export function StudentProfile() {
     }
   };
 
-  // Упрощенная фильтрация для надежности
+  // Профессиональная фильтрация по базе
   const filteredGames = useMemo(() => {
     if (!storedGames) return [];
     
     return storedGames.filter(g => {
-      // 1. Фильтр по цвету (ищем никнейм в PGN)
+      // 1. Фильтр по контролю времени (из метаданных)
+      const gPerf = (g.metadata?.perf_type || "").toLowerCase();
+      const matchesPerf = perfType === "all" || gPerf === perfType;
+
+      // 2. Фильтр по цвету (ищем никнейм в PGN)
       const isWhite = g.pgn.includes(`[White "${selectedStudent?.nickname}"]`);
       const matchesColor = colorFilter === "all" || (colorFilter === "white" && isWhite) || (colorFilter === "black" && !isWhite);
       
-      // 2. Фильтр по результату (из метаданных)
+      // 3. Фильтр по результату (из метаданных)
       const res = (g.metadata?.result || "").toLowerCase();
       const matchesResult = resultFilter === "all" || resultFilter === res;
       
-      return matchesColor && matchesResult;
+      return matchesPerf && matchesColor && matchesResult;
     }).slice(0, maxGames);
-  }, [storedGames, colorFilter, resultFilter, maxGames, selectedStudent]);
+  }, [storedGames, perfType, colorFilter, resultFilter, maxGames, selectedStudent]);
 
   // Синхронизация deepData для кнопок действий
   useEffect(() => {
@@ -131,7 +135,12 @@ export function StudentProfile() {
           lichess_id: g.id,
           student_id: selectedStudent.id!,
           pgn: g.pgn,
-          metadata: { opponent: g.opponent, result: g.result, evals: g.evals }
+          metadata: { 
+            opponent: g.opponent, 
+            result: g.result, 
+            evals: g.evals,
+            perf_type: g.perfType // Сохраняем тип контроля в базу!
+          }
         })));
         const updatedGames = await getStudentGames(selectedStudent.id);
         setStoredGames(updatedGames);
@@ -151,7 +160,7 @@ export function StudentProfile() {
     try {
       const toAnalyze = deepData.filter(g => !g.technicalAnalysis).slice(0, 10);
       if (toAnalyze.length === 0) {
-        alert('Все выбранные партии уже подготовлены.');
+        alert('В текущей выборке все партии уже подготовлены.');
         return;
       }
       const payload = toAnalyze.map(g => ({ pgn: g.pgn, lichess_id: g.id, evals: g.evals }));
@@ -316,6 +325,7 @@ export function StudentProfile() {
                     <span className={`text-[9px] font-black uppercase px-1.5 rounded ${game.metadata?.result === 'Win' ? 'bg-green-500/10 text-green-500' : game.metadata?.result === 'Loss' ? 'bg-red-500/10 text-red-500' : 'bg-gray-500/10 text-gray-500'}`}>
                       {game.metadata?.result}
                     </span>
+                    <span className="text-[9px] text-[#444] uppercase">{game.metadata?.perf_type}</span>
                   </div>
                 </div>
                 <a href={`https://lichess.org/${game.lichess_id}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-[#333] hover:text-[#4fc3f7] hover:bg-white/5 transition-all">
