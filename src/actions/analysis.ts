@@ -4,17 +4,6 @@ import { fetchUserGames } from './lichess';
 import { callPythonAnalyst } from './python-analyst';
 import { updateGameTechnicalAnalysis } from './analysis-db';
 
-export interface GameDeepData {
-  id: string;
-  opponent: string;
-  result: string;
-  pgn: string;
-  evals?: any[];
-  technicalAnalysis?: any;
-  blunders: any[];
-  perfType: string;
-}
-
 export async function runBatchAnalysis(
   studentId: string,
   username: string,
@@ -40,16 +29,16 @@ export async function collectStudentData(
     max: number; 
     perfType?: string; 
     color?: 'white' | 'black';
-    since?: number;
-    until?: number;
   }
 ) {
-  const rawGames = await fetchUserGames(username, options);
+  // Если мы ищем конкретные игры, увеличим буфер запроса до 100, чтобы найти совпадения
+  const fetchLimit = Math.max(options.max, 100);
+  const rawGames = await fetchUserGames(username, { ...options, max: fetchLimit });
   
   return rawGames.map(g => {
     const isWhite = g.players.white.user?.id === username.toLowerCase();
-    // Извлекаем тип контроля из данных Lichess (speed или variant)
-    const perf = (g as any).speed || (g as any).perf || 'unknown';
+    // Lichess NDJSON: поле 'speed' содержит blitz, rapid и т.д.
+    const perf = g.speed || g.perf || 'unknown';
     
     return {
       id: g.id,
@@ -57,7 +46,6 @@ export async function collectStudentData(
       result: g.winner === (isWhite ? 'white' : 'black') ? 'Win' : (g.winner ? 'Loss' : 'Draw'),
       pgn: g.pgn || '',
       evals: g.analysis || [],
-      blunders: [],
       perfType: perf
     };
   });
