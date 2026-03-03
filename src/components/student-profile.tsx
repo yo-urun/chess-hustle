@@ -291,7 +291,11 @@ export function StudentProfile() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {!game.technicalAnalysis && <Zap className="w-3 h-3 text-yellow-500/50" title="Требуется подготовка" />}
+                  {!game.technicalAnalysis && (
+                    <span title="Требуется подготовка">
+                      <Zap className="w-3 h-3 text-yellow-500/50" />
+                    </span>
+                  )}
                   <ExternalLink className="w-3 h-3 text-[#444]" />
                 </div>
               </div>
