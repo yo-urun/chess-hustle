@@ -22,7 +22,6 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
 
   if (!profile) throw new Error('Профиль тренера не найден');
 
-  // Формируем ОЧЕНЬ СТРУКТУРИРОВАННЫЕ данные для ИИ
   const technicalSummary = gamesData.map(g => {
     const info = g.game_info || {};
     const stats = g.summary || {};
@@ -35,31 +34,28 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
       result: info.result,
       is_student_white: info.white === studentNickname,
       stockfish_blunders_count: stats.blunders || 0,
-      interest_score: stats.interest_score || 0,
       evaluation_swings: evals.map((e: any) => `Move ${e.move}: ${e.eval.toFixed(1)}`).join(', ')
     };
   });
 
   const prompt = `
-    ТЫ — ЭЛИТНЫЙ ШАХМАТНЫЙ ТРЕНЕР. ТВОЯ ЗАДАЧА — АНАЛИЗ ПАРТИЙ УЧЕНИКА ${studentNickname}.
+    ТЫ — ШАХМАТНЫЙ АНАЛИТИК. ТВОЯ ЗАДАЧА — СУХОЙ И ПРАВДИВЫЙ ОТЧЕТ ПО ПАРТИЯМ УЧЕНИКА ${studentNickname}.
     
-    ОСНОВНОЕ ПРАВИЛО: Твой анализ ДОЛЖЕН СТРОГО ОПИРАТЬСЯ НА ДАННЫЕ STOCKFISH.
-    Если Stockfish показывает резкое падение оценки (evaluation_swings), ты ОБЯЗАН найти причину и указать на эту партию по ссылке.
-    
-    ИНСТРУКЦИИ ПО ФОРМАТУ:
-    - НЕ ИСПОЛЬЗУЙ Markdown (никаких #, ##, ###, **, *). 
-    - Разделяй текст только пустой строкой между абзацами.
-    - Обязательно давай прямые ссылки на партии Lichess в формате https://lichess.org/ID.
-    - Пиши на русском языке, профессионально и жестко по делу.
+    ЖЕСТКИЕ ПРАВИЛА:
+    1. ТЕМПЕРАТУРА АНАЛИЗА = 0. ЗАПРЕЩЕНО ГАЛЛЮЦИНИРОВАТЬ И ПРИДУМЫВАТЬ ФАКТЫ.
+    2. ЕСЛИ В ДАННЫХ ЕСТЬ "evaluation_swings" (РЕЗКИЕ ПЕРЕПАДЫ ОЦЕНКИ), ТЫ ОБЯЗАН ЭТО ОТМЕТИТЬ.
+    3. ЕСЛИ STOCKFISH ПОКАЗЫВАЕТ ПЛОХУЮ ОЦЕНКУ, ТЫ НЕ ИМЕЕШЬ ПРАВА ХВАЛИТЬ ИГРОКА.
+    4. ПИШИ КРАТКО, СУХО, ТОЛЬКО ПО ДАННЫМ STOCKFISH.
+    5. НЕ ИСПОЛЬЗУЙ Markdown (никаких #, ##, ***). Разделяй абзацы пустой строкой.
+    6. ОБЯЗАТЕЛЬНО УКАЗЫВАЙ ССЫЛКИ НА ПАРТИИ ПРИ РАЗБОРЕ ОШИБОК.
 
-    ТЕХНИЧЕСКИЕ ДАННЫЕ ПАРТИЙ (ОТ STOCKFISH):
+    ДАННЫЕ STOCKFISH:
     ${JSON.stringify(technicalSummary, null, 2)}
     
-    СТРУКТУРА:
-    1. Общий вердикт по игре ученика за период.
-    2. Разбор критических ошибок (ссылайся на конкретные партии и их URL).
-    3. Почему Stockfish зафиксировал зевки? (Тактика, позиционный провал и т.д.).
-    4. Рекомендации по обучению.
+    ФОРМАТ ОТЧЕТА:
+    - Краткая сводка результатов.
+    - Перечень критических ошибок со ссылками на партии Lichess.
+    - Вывод на основе цифр Stockfish.
   `;
 
   if (profile.ai_provider === 'ollama') {
@@ -72,11 +68,13 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
 
     const body = isOpenAIStyle ? {
       model: profile.ollama_model || "gemini-3-flash-preview",
-      messages: [{ role: "user", content: prompt }]
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0 // Нулевая температура для исключения галлюцинаций
     } : {
       model: profile.ollama_model || "gemini-3-flash-preview",
       prompt: prompt,
-      stream: false
+      stream: false,
+      options: { temperature: 0 }
     };
 
     const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
@@ -91,7 +89,10 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      body: JSON.stringify({ 
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0 } // Нулевая температура
+      })
     });
 
     const result = await response.json();

@@ -1,6 +1,6 @@
 'use server';
 
-import { fetchUserGames } from './lichess';
+import { fetchUserGames, LichessGame } from './lichess';
 import { callPythonAnalyst } from './python-analyst';
 import { updateGameTechnicalAnalysis } from './analysis-db';
 
@@ -31,13 +31,11 @@ export async function collectStudentData(
     color?: 'white' | 'black';
   }
 ) {
-  // Если мы ищем конкретные игры, увеличим буфер запроса до 100, чтобы найти совпадения
   const fetchLimit = Math.max(options.max, 100);
-  const rawGames = await fetchUserGames(username, { ...options, max: fetchLimit });
+  const rawGames: LichessGame[] = await fetchUserGames(username, { ...options, max: fetchLimit });
   
-  return rawGames.map(g => {
+  return rawGames.map((g: LichessGame) => {
     const isWhite = g.players.white.user?.id === username.toLowerCase();
-    // Lichess NDJSON: поле 'speed' содержит blitz, rapid и т.д.
     const perf = g.speed || g.perf || 'unknown';
     
     return {
