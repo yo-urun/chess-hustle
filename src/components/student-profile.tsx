@@ -52,7 +52,6 @@ export function StudentProfile() {
   const [storedGames, setStoredGames] = useState<GameRecord[]>([])
   const [deepData, setDeepData] = useState<any[] | null>(null)
   
-  // Filters
   const [perfType, setPerfType] = useState<string>("blitz")
   const [colorFilter, setColorFilter] = useState<"white" | "black" | "all">("all")
   const [resultFilter, setResultFilter] = useState<"win" | "loss" | "draw" | "all">("all")
@@ -88,7 +87,6 @@ export function StudentProfile() {
     }
   };
 
-  // Базовая фильтрация из локальной БД
   const filteredGames = useMemo(() => {
     if (!storedGames) return [];
     return storedGames.filter(g => {
@@ -102,7 +100,6 @@ export function StudentProfile() {
     }).slice(0, maxGames);
   }, [storedGames, perfType, colorFilter, resultFilter, maxGames, selectedStudent]);
 
-  // Инициализация выборки (deepData) только при смене фильтров или загрузке
   useEffect(() => {
     if (filteredGames.length > 0) {
       const mapped = filteredGames.map(g => ({
@@ -122,7 +119,6 @@ export function StudentProfile() {
 
   if (!selectedStudent) return null
 
-  // Удаление партии из текущей выборки вручную
   const handleRemoveFromSelection = (lichessId: string) => {
     setDeepData(prev => prev ? prev.filter(g => g.id !== lichessId) : null);
   };
@@ -131,23 +127,14 @@ export function StudentProfile() {
     if (!selectedStudent?.id) return;
     setIsCollecting(true);
     try {
-      const options = { 
-        max: maxGames, 
-        perfType: perfType === 'all' ? undefined : perfType, 
-        color: colorFilter === 'all' ? undefined : colorFilter 
-      };
+      const options = { max: maxGames, perfType: perfType === 'all' ? undefined : perfType, color: colorFilter === 'all' ? undefined : colorFilter };
       const data = await collectStudentData(selectedStudent.nickname, options as any);
       if (data && data.length > 0) {
         await saveGamesBatch(data.map(g => ({
           lichess_id: g.id,
           student_id: selectedStudent.id!,
           pgn: g.pgn,
-          metadata: { 
-            opponent: g.opponent, 
-            result: g.result, 
-            evals: g.evals, 
-            perf_type: g.perfType 
-          }
+          metadata: { opponent: g.opponent, result: g.result, evals: g.evals, perf_type: g.perfType }
         })));
         const updatedGames = await getStudentGames(selectedStudent.id);
         setStoredGames(updatedGames);
@@ -161,7 +148,6 @@ export function StudentProfile() {
 
   const handleTechnicalPrep = async () => {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
-    
     const unanalyzed = deepData.filter(g => !g.technicalAnalysis);
     if (unanalyzed.length === 0) {
       alert('Все партии в текущей выборке уже подготовлены.');
@@ -180,13 +166,10 @@ export function StudentProfile() {
       setAnalysisProgress("Синхронизация...");
       await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedResults);
       
-      // КРИТИЧЕСКИ ВАЖНО: Ждем обновления базы и обновляем локальное состояние
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
-      
       alert('Техническая подготовка завершена.');
     } catch (error: any) {
-      console.error("Prep error:", error);
       alert('Ошибка подготовки: ' + error.message);
     } finally {
       setIsTechnicalAnalyzing(false);
@@ -195,13 +178,17 @@ export function StudentProfile() {
   };
 
   const handleGenerateAiReport = async () => {
-    if (!deepData || !selectedStudent?.id) return;
+    if (!selectedStudent?.id) return;
     
-    // Берем ТОЛЬКО те, где technicalAnalysis реально существует в deepData
-    const readyGames = deepData.filter(g => g.technicalAnalysis).map(g => g.technicalAnalysis);
+    // ПРЯМАЯ ПРОВЕРКА ИЗ ИСТОЧНИКА ИСТИНЫ (filteredGames)
+    const readyGames = filteredGames
+      .filter(g => g.technical_analysis)
+      .map(g => g.technical_analysis);
     
+    console.log(`[handleGenerateAiReport] Ready games found: ${readyGames.length}`);
+
     if (readyGames.length === 0) {
-      alert('Нет подготовленных данных! Сначала запустите "Подготовку".');
+      alert('Нет подготовленных данных! Убедитесь, что рядом с партиями стоит зеленая галочка.');
       return;
     }
 
@@ -211,7 +198,7 @@ export function StudentProfile() {
       setAiReport(report);
       await saveAnalysis({
         student_id: selectedStudent.id,
-        pgn: deepData.filter(g => g.technicalAnalysis).map(g => g.pgn).join('\n\n'),
+        pgn: filteredGames.filter(g => g.technical_analysis).map(g => g.pgn).join('\n\n'),
         analysis_data: readyGames,
         report: report,
         metadata: { 
@@ -252,7 +239,6 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Filter Panel */}
       <div className="bg-[#1a1a1a] border border-[#333] p-6 rounded-3xl shadow-xl flex flex-col gap-6 border-b-4 border-b-[#4fc3f7]/20">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="space-y-2">
@@ -327,7 +313,7 @@ export function StudentProfile() {
             ) : <><Zap className="w-4 h-4 mr-2" /> 2. Полная подготовка</>}
           </Button>
 
-          <Button onClick={handleGenerateAiReport} disabled={!deepData || isAIAnalyzing} className="h-14 rounded-2xl bg-gradient-to-r from-[#4fc3f7] to-[#2196f3] text-black hover:opacity-90 font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(79,195,247,0.4)]">
+          <Button onClick={handleGenerateAiReport} disabled={isAIAnalyzing} className="h-14 rounded-2xl bg-gradient-to-r from-[#4fc3f7] to-[#2196f3] text-black hover:opacity-90 font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(79,195,247,0.4)]">
             {isAIAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <><BrainCircuit className="w-4 h-4 mr-2" /> 3. ИИ-Рекомендации</>}
           </Button>
         </div>

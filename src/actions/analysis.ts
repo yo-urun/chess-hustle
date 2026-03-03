@@ -24,7 +24,7 @@ export async function runBatchAnalysis(
   const payload = games.map(g => ({ 
     pgn: g.pgn, 
     evals: g.evals,
-    lichess_id: g.lichess_id 
+    lichess_id: g.lichess_id.trim().toLowerCase() // Normalize ID
   }));
   
   const result = await callPythonAnalyst(payload, username);
@@ -33,18 +33,20 @@ export async function runBatchAnalysis(
     throw new Error(result.error || 'Analysis failed');
   }
 
+  const results = [];
   for (const analysis of result.analyses) {
-    const gameId = analysis.game_id;
+    const gameId = analysis.game_id?.trim().toLowerCase();
     if (gameId && gameId !== "unknown") {
       try {
         await updateGameTechnicalAnalysis(gameId, studentId, analysis);
+        results.push(analysis);
       } catch (dbError) {
         console.error(`[runBatchAnalysis] DB Update Error for ${gameId}:`, dbError);
       }
     }
   }
 
-  return result.analyses;
+  return results;
 }
 
 export async function collectStudentData(
@@ -55,8 +57,6 @@ export async function collectStudentData(
     color?: 'white' | 'black';
   }
 ) {
-  // Lichess API отлично фильтрует по типу и цвету.
-  // Мы запрашиваем чуть больше (x2), только если Lichess не может отфильтровать сам (например, результат игры)
   const fetchLimit = options.max * 2; 
   const rawGames: LichessGame[] = await fetchUserGames(username, { ...options, max: fetchLimit });
   
@@ -65,7 +65,7 @@ export async function collectStudentData(
     const perf = g.speed || g.perf || 'unknown';
     
     return {
-      id: g.id,
+      id: g.id.toLowerCase(), // Normalize ID
       opponent: isWhite ? g.players.black.user?.name : g.players.white.user?.name,
       result: g.winner === (isWhite ? 'white' : 'black') ? 'Win' : (g.winner ? 'Loss' : 'Draw'),
       pgn: g.pgn || '',
