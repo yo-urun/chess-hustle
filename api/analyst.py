@@ -27,6 +27,7 @@ def get_material_value(board: chess.Board) -> int:
     black = sum(len(board.pieces(pt, chess.BLACK)) * val for pt, val in values.items())
     return white - black
 
+# --- Professional Tactic Classifier (Enhanced with Chess Tutor ideas) ---
 class TacticClassifier:
     def __init__(self, board: chess.Board):
         self.board = board
@@ -34,24 +35,23 @@ class TacticClassifier:
     def classify(self, move: chess.Move) -> List[str]:
         tactics = []
         try:
-            # 1. Checks & Discovered Checks
+            # 1. Checks & Discovered Attacks (Enhanced)
             if self.board.gives_check(move):
                 self.board.push(move)
                 checkers = self.board.checkers()
                 if len(checkers) > 1: tactics.append("doubleCheck")
-                # If the piece that moved is NOT one of the checkers -> it's a discovered check
                 if move.to_square not in checkers:
                     tactics.append("discoveredCheck")
                 else:
                     tactics.append("check")
                 self.board.pop()
 
-            # 2. Geometry: Fork, Pin, Skewer
+            # 2. Geometry: Fork, Pin, Skewer, X-Ray
             self.board.push(move)
             sq = move.to_square
             p = self.board.piece_at(sq)
             if p:
-                # Fork
+                # Fork Detector
                 attacks = self.board.attacks(sq)
                 targets = [self.board.piece_at(tsq) for tsq in attacks if self.board.piece_at(tsq) and self.board.piece_at(tsq).color != p.color]
                 valuable = [t for t in targets if t.piece_type in [chess.ROOK, chess.QUEEN, chess.KING, chess.BISHOP, chess.KNIGHT]]
@@ -60,20 +60,41 @@ class TacticClassifier:
                 # Linear tactics (Pin/Skewer)
                 if p.piece_type in [chess.BISHOP, chess.ROOK, chess.QUEEN]:
                     if self._check_linear(sq, p.color): tactics.append("linearAttack")
+            
+            # 3. Overloading (Перегрузка) - NEW
+            # Check if an opponent piece is defending multiple attacked pieces
+            opp_color = not self.board.turn
+            for o_sq in chess.SQUARES:
+                o_p = self.board.piece_at(o_sq)
+                if o_p and o_p.color == opp_color:
+                    defended_sqs = self.board.attacks(o_sq)
+                    attacked_and_defended = 0
+                    for d_sq in defended_sqs:
+                        d_p = self.board.piece_at(d_sq)
+                        if d_p and d_p.color == opp_color:
+                            # Is this piece also attacked by us?
+                            if self.board.is_attacked_by(not opp_color, d_sq):
+                                attacked_and_defended += 1
+                    if attacked_and_defended >= 2:
+                        tactics.append("overloading")
+                        break
 
-            # 3. Piece status
+            # 4. Back Rank Weakness - NEW
+            if self._check_back_rank(not self.board.turn):
+                tactics.append("backRankWeakness")
+
+            # 5. Piece Status: Hanging or Trapped
             if self.board.is_capture(move):
                 self.board.pop()
                 if not self.board.is_attacked_by(not self.board.turn, move.to_square):
                     tactics.append("hangingPiece")
                 self.board.push(move)
 
-            # 4. Trapped Piece logic (very important for kids)
+            # Trapped Piece
             opp = not self.board.turn
             for o_sq in chess.SQUARES:
                 o_p = self.board.piece_at(o_sq)
                 if o_p and o_p.color == opp and o_p.piece_type in [chess.BISHOP, chess.KNIGHT, chess.QUEEN]:
-                    # If it's attacked but has no safe squares
                     if self.board.is_attacked_by(not opp, o_sq):
                         moves = [m for m in self.board.legal_moves if m.from_square == o_sq]
                         safe_moves = [m for m in moves if not self.board.is_attacked_by(not opp, m.to_square)]
@@ -95,6 +116,38 @@ class TacticClassifier:
                     return True
                 self.board.set_piece_at(sq, original)
         return False
+
+    def _check_back_rank(self, color: chess.Color) -> bool:
+        king_sq = self.board.king(color)
+        if not king_sq: return False
+        rank = chess.square_rank(king_sq)
+        if rank not in [0, 7]: return False
+        
+        # Check if trapped by own pawns
+        direction = 1 if color == chess.WHITE else -1
+        pawn_rank = rank + direction
+        if not (0 <= pawn_rank <= 7): return False
+        
+        file = chess.square_file(king_sq)
+        is_trapped = True
+        for df in [-1, 0, 1]:
+            nf = file + df
+            if 0 <= nf <= 7:
+                sq = chess.square(nf, pawn_rank)
+                p = self.board.piece_at(sq)
+                if not (p and p.piece_type == chess.PAWN and p.color == color):
+                    is_trapped = False
+                    break
+        
+        if is_trapped:
+            # Check if major piece attacks this rank
+            enemy_color = not color
+            for sq in self.board.pieces(chess.ROOK, enemy_color) | self.board.pieces(chess.QUEEN, enemy_color):
+                if any(chess.square_rank(target) == rank for target in self.board.attacks(sq)):
+                    return True
+        return False
+
+# --- Core Analysis Engine ---
 
 def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None, manual_id: str = None) -> Dict[str, Any]:
     game_id = manual_id or "unknown"
