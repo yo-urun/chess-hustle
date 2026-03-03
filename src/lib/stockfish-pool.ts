@@ -13,7 +13,7 @@ export class StockfishPool {
   }
 
   /**
-   * Ultra-Parallel Analysis with Error Isolation
+   * Ultra-Parallel Analysis with Error Isolation and FEN support
    */
   public async analyzeBatch(
     games: any[], 
@@ -25,11 +25,22 @@ export class StockfishPool {
       try {
         const game = games[gIdx];
         const chess = new Chess();
-        chess.loadPgn(game.pgn);
+        
+        // Safety check for PGN loading
+        if (!chess.loadPgn(game.pgn)) {
+          console.error(`[StockfishPool] Failed to load PGN for game ${gIdx}`);
+          results.push(game);
+          continue;
+        }
+
         const history = chess.history({ verbose: true });
         
+        // Initialize tempChess with the correct starting FEN from headers
+        const startFen = chess.header().FEN;
+        const tempChess = new Chess(startFen || undefined);
+        
         const movesToAnalyze: { fen: string; moveIdx: number }[] = [];
-        const tempChess = new Chess();
+        
         for (let i = 0; i < history.length; i++) {
           tempChess.move(history[i].san);
           const existing = game.evals?.find((e: any) => e.move === i + 1);
@@ -73,7 +84,7 @@ export class StockfishPool {
         results.push({ ...game, evals: [...(game.evals || []), ...moveEvals] });
       } catch (gameErr) {
         console.error(`Error analyzing game ${gIdx}:`, gameErr);
-        results.push(games[gIdx]); // Fallback to raw game if failed
+        results.push(games[gIdx]); 
       }
     }
 
