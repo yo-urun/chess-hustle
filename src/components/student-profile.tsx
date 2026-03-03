@@ -52,15 +52,13 @@ export function StudentProfile() {
   const [storedGames, setStoredGames] = useState<GameRecord[]>([])
   const [deepData, setDeepData] = useState<any[] | null>(null)
   
+  // Filters
   const [perfType, setPerfType] = useState<string>("blitz")
   const [colorFilter, setColorFilter] = useState<"white" | "black" | "all">("all")
   const [resultFilter, setResultFilter] = useState<"win" | "loss" | "draw" | "all">("all")
   const [maxGames, setMaxGames] = useState<number>(20)
-  const [studioUrl, setStudioUrl] = useState<string | null>(null)
-
-  // Progress state for granular feedback
+  
   const [analysisProgress, setAnalysisProgress] = useState<string>("")
-
   const engineRef = useRef<StockfishEngine | null>(null);
 
   useEffect(() => {
@@ -145,58 +143,55 @@ export function StudentProfile() {
 
   const handleTechnicalPrep = async () => {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
-    setIsTechnicalAnalyzing(true);
     
-    if (!engineRef.current) {
-      engineRef.current = new StockfishEngine();
+    const unanalyzed = deepData.filter(g => !g.technicalAnalysis);
+    if (unanalyzed.length === 0) {
+      alert('Все партии в текущей выборке уже подготовлены.');
+      return;
     }
 
+    setIsTechnicalAnalyzing(true);
+    if (!engineRef.current) engineRef.current = new StockfishEngine();
+
     try {
-      const toAnalyze = deepData.filter(g => !g.technicalAnalysis).slice(0, 10);
-      
-      if (toAnalyze.length === 0) {
-        alert('Все партии в выборке готовы.');
-        setIsTechnicalAnalyzing(false);
-        return;
-      }
+      // Пагинация для стабильности
+      const batchSize = 5;
+      for (let i = 0; i < unanalyzed.length; i += batchSize) {
+        const batch = unanalyzed.slice(i, i + batchSize);
+        const analyzedBatch = [];
 
-      const analyzedGames = [];
-      let gameIdx = 1;
-
-      for (const game of toAnalyze) {
-        const chess = new Chess();
-        chess.loadPgn(game.pgn);
-        const moves = chess.history();
-        const evals: any[] = [];
-        
-        chess.reset();
-        
-        // ПОЛНЫЙ АНАЛИЗ: Проходим по каждому ходу
-        for (let i = 0; i < moves.length; i++) {
-          chess.move(moves[i]);
-          setAnalysisProgress(`Партия ${gameIdx}/${toAnalyze.length} | Ход ${i + 1}/${moves.length}`);
+        for (let j = 0; j < batch.length; j++) {
+          const game = batch[j];
+          const chess = new Chess();
+          chess.loadPgn(game.pgn);
+          const moves = chess.history();
+          const evals: any[] = [];
           
-          const result = await engineRef.current.evaluateFen(chess.fen(), 12); // Глубина 12 для баланса точность/скорость
-          if (result.cp !== undefined || result.mate !== undefined) {
-            evals.push({
-              move: i + 1,
-              eval: result.cp ?? (result.mate! * 1000),
-              bestMove: result.bestMove
-            });
+          chess.reset();
+          for (let m = 0; m < moves.length; m++) {
+            chess.move(moves[m]);
+            setAnalysisProgress(`Партия ${i + j + 1}/${unanalyzed.length} | Ход ${m + 1}/${moves.length}`);
+            const result = await engineRef.current.evaluateFen(chess.fen(), 12);
+            if (result.cp !== undefined || result.mate !== undefined) {
+              evals.push({
+                move: m + 1,
+                eval: (result.cp ?? (result.mate! * 1000)) / 100.0,
+                bestMove: result.bestMove
+              });
+            }
           }
+          analyzedBatch.push({ ...game, evals, lichess_id: game.id });
         }
-        analyzedGames.push({ ...game, evals: evals }); // Заменяем evals на полные данные
-        gameIdx++;
-      }
 
-      setAnalysisProgress("Синхронизация с сервером...");
-      await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedGames);
+        setAnalysisProgress("Синхронизация...");
+        await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedBatch);
+        const updatedGames = await getStudentGames(selectedStudent.id);
+        setStoredGames(updatedGames);
+      }
       
-      const updatedGames = await getStudentGames(selectedStudent.id);
-      setStoredGames(updatedGames);
-      setAnalysisProgress("");
-      alert(`Полный технический анализ завершен для ${toAnalyze.length} партий.`);
+      alert('Вся выборка подготовлена.');
     } catch (error: any) {
+      console.error("Prep error:", error);
       alert('Ошибка подготовки: ' + error.message);
     } finally {
       setIsTechnicalAnalyzing(false);
@@ -205,9 +200,8 @@ export function StudentProfile() {
   };
 
   const handleGenerateAiReport = async () => {
-    if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
+    if (!deepData || !selectedStudent?.id) return;
     const readyGames = deepData.filter(g => g.technicalAnalysis).map(g => g.technicalAnalysis);
-    
     if (readyGames.length === 0) {
       alert('Сначала подготовьте данные!');
       return;
@@ -217,20 +211,13 @@ export function StudentProfile() {
     try {
       const report = await generateCoachingReport(selectedStudent.nickname, readyGames, true);
       setAiReport(report);
-
       await saveAnalysis({
         student_id: selectedStudent.id,
         pgn: deepData.filter(g => g.technicalAnalysis).map(g => g.pgn).join('\n\n'),
         analysis_data: readyGames,
         report: report,
-        metadata: {
-          game_count: readyGames.length,
-          perf_type: perfType,
-          result_filter: resultFilter,
-          color_filter: colorFilter
-        }
+        metadata: { game_count: readyGames.length, perf_type: perfType, result_filter: resultFilter, color_filter: colorFilter }
       });
-
       const updatedAnalyses = await getStudentAnalyses(selectedStudent.id);
       setSavedAnalyses(updatedAnalyses);
     } catch (error: any) {
@@ -344,6 +331,7 @@ export function StudentProfile() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Table Area */}
         <div className="lg:col-span-1 bg-[#1a1a1a] border border-[#333] rounded-3xl overflow-hidden flex flex-col max-h-[600px] shadow-2xl">
           <div className="p-4 border-b border-[#222] bg-[#111]/50 flex justify-between items-center">
             <span className="text-[10px] font-black uppercase text-[#666] tracking-widest">Выборка</span>
@@ -373,6 +361,7 @@ export function StudentProfile() {
           </div>
         </div>
 
+        {/* Report Area */}
         <div className="lg:col-span-2 space-y-6">
           {aiReport ? (
             <div className="bg-[#1a1a1a] border-2 border-[#4fc3f7]/30 rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden">
@@ -397,6 +386,7 @@ export function StudentProfile() {
         </div>
       </div>
 
+      {/* Archive */}
       <div className="mt-8 space-y-6">
         <div className="flex items-center gap-3 text-xs font-black text-[#666] uppercase tracking-[0.3em] border-l-2 border-[#4fc3f7] pl-4">
           <Clock className="w-4 h-4" /> Архив аналитики
