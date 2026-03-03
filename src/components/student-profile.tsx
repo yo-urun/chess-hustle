@@ -52,14 +52,15 @@ export function StudentProfile() {
   const [storedGames, setStoredGames] = useState<GameRecord[]>([])
   const [deepData, setDeepData] = useState<any[] | null>(null)
   
-  // Filters
   const [perfType, setPerfType] = useState<string>("blitz")
   const [colorFilter, setColorFilter] = useState<"white" | "black" | "all">("all")
   const [resultFilter, setResultFilter] = useState<"win" | "loss" | "draw" | "all">("all")
   const [maxGames, setMaxGames] = useState<number>(20)
   const [studioUrl, setStudioUrl] = useState<string | null>(null)
 
-  // Engine ref to avoid re-creation
+  // Progress state for granular feedback
+  const [analysisProgress, setAnalysisProgress] = useState<string>("")
+
   const engineRef = useRef<StockfishEngine | null>(null);
 
   useEffect(() => {
@@ -89,28 +90,19 @@ export function StudentProfile() {
     }
   };
 
-  // Профессиональная фильтрация: опираемся на ТОЧНЫЕ метаданные
   const filteredGames = useMemo(() => {
     if (!storedGames) return [];
-    
     return storedGames.filter(g => {
-      // 1. Фильтр по контролю времени (с поддержкой старых записей)
       const gPerf = (g.metadata?.perf_type || "").toLowerCase();
       const matchesPerf = perfType === "all" || gPerf === perfType || gPerf === "";
-
-      // 2. Фильтр по цвету (ищем никнейм в PGN)
       const isWhite = g.pgn.includes(`[White "${selectedStudent?.nickname}"]`);
       const matchesColor = colorFilter === "all" || (colorFilter === "white" && isWhite) || (colorFilter === "black" && !isWhite);
-      
-      // 3. Фильтр по результату (из метаданных)
       const res = (g.metadata?.result || "").toLowerCase();
       const matchesResult = resultFilter === "all" || resultFilter === res;
-      
       return matchesPerf && matchesColor && matchesResult;
     }).slice(0, maxGames);
   }, [storedGames, perfType, colorFilter, resultFilter, maxGames, selectedStudent]);
 
-  // Синхронизируем deepData для аналитика
   useEffect(() => {
     if (filteredGames.length > 0) {
       setDeepData(filteredGames.map(g => ({
@@ -132,29 +124,17 @@ export function StudentProfile() {
     if (!selectedStudent?.id) return;
     setIsCollecting(true);
     try {
-      const options = { 
-        max: maxGames, 
-        perfType: perfType === 'all' ? undefined : perfType, 
-        color: colorFilter === 'all' ? undefined : colorFilter 
-      };
+      const options = { max: maxGames, perfType: perfType === 'all' ? undefined : perfType, color: colorFilter === 'all' ? undefined : colorFilter };
       const data = await collectStudentData(selectedStudent.nickname, options as any);
-      
       if (data && data.length > 0) {
         await saveGamesBatch(data.map(g => ({
           lichess_id: g.id,
           student_id: selectedStudent.id!,
           pgn: g.pgn,
-          metadata: { 
-            opponent: g.opponent, 
-            result: g.result, 
-            evals: g.evals,
-            perf_type: g.perfType 
-          }
+          metadata: { opponent: g.opponent, result: g.result, evals: g.evals, perf_type: g.perfType }
         })));
         const updatedGames = await getStudentGames(selectedStudent.id);
         setStoredGames(updatedGames);
-      } else {
-        alert('По вашему запросу новых партий не найдено.');
       }
     } catch (error: any) {
       alert('Ошибка Lichess: ' + error.message);
@@ -167,22 +147,21 @@ export function StudentProfile() {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
     setIsTechnicalAnalyzing(true);
     
-    // Initialize engine if not exists
     if (!engineRef.current) {
       engineRef.current = new StockfishEngine();
     }
 
     try {
-      // Берем партии, у которых еще нет тех. анализа
       const toAnalyze = deepData.filter(g => !g.technicalAnalysis).slice(0, 10);
       
       if (toAnalyze.length === 0) {
-        alert('Все выбранные партии уже подготовлены.');
+        alert('Все партии в выборке готовы.');
         setIsTechnicalAnalyzing(false);
         return;
       }
 
       const analyzedGames = [];
+      let gameIdx = 1;
 
       for (const game of toAnalyze) {
         const chess = new Chess();
@@ -190,46 +169,47 @@ export function StudentProfile() {
         const moves = chess.history();
         const evals: any[] = [];
         
-        // Reset board for step-by-step analysis
         chess.reset();
         
+        // ПОЛНЫЙ АНАЛИЗ: Проходим по каждому ходу
         for (let i = 0; i < moves.length; i++) {
           chess.move(moves[i]);
-          // Анализируем каждые 4 хода или последние 10 ходов
-          if (i % 4 === 0 || i > moves.length - 10) {
-            const result = await engineRef.current.evaluateFen(chess.fen(), 12);
-            if (result.cp !== undefined || result.mate !== undefined) {
-              evals.push({
-                move: i + 1,
-                eval: result.cp ?? (result.mate! * 1000),
-                bestMove: result.bestMove
-              });
-            }
+          setAnalysisProgress(`Партия ${gameIdx}/${toAnalyze.length} | Ход ${i + 1}/${moves.length}`);
+          
+          const result = await engineRef.current.evaluateFen(chess.fen(), 12); // Глубина 12 для баланса точность/скорость
+          if (result.cp !== undefined || result.mate !== undefined) {
+            evals.push({
+              move: i + 1,
+              eval: result.cp ?? (result.mate! * 1000),
+              bestMove: result.bestMove
+            });
           }
         }
-        analyzedGames.push({ ...game, evals: [...game.evals, ...evals] });
+        analyzedGames.push({ ...game, evals: evals }); // Заменяем evals на полные данные
+        gameIdx++;
       }
 
-      const results = await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedGames);
+      setAnalysisProgress("Синхронизация с сервером...");
+      await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedGames);
       
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
-      alert(`Подготовка данных (Stockfish WASM) завершена для ${results.length} партий.`);
+      setAnalysisProgress("");
+      alert(`Полный технический анализ завершен для ${toAnalyze.length} партий.`);
     } catch (error: any) {
       alert('Ошибка подготовки: ' + error.message);
     } finally {
       setIsTechnicalAnalyzing(false);
+      setAnalysisProgress("");
     }
   };
 
   const handleGenerateAiReport = async () => {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
-    
-    // Важно: берем ТОЛЬКО те, где technicalAnalysis реально существует
     const readyGames = deepData.filter(g => g.technicalAnalysis).map(g => g.technicalAnalysis);
     
     if (readyGames.length === 0) {
-      alert('Нет подготовленных данных! Сначала запустите "Подготовку данных".');
+      alert('Сначала подготовьте данные!');
       return;
     }
 
@@ -348,8 +328,13 @@ export function StudentProfile() {
             {isCollecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Database className="w-4 h-4 mr-2" /> 1. Загрузить игры</>}
           </Button>
           
-          <Button onClick={handleTechnicalPrep} disabled={!deepData || isTechnicalAnalyzing} className="h-14 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 hover:bg-yellow-500/20 font-black text-xs uppercase tracking-widest shadow-xl">
-            {isTechnicalAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Zap className="w-4 h-4 mr-2" /> 2. Подготовка ({deepData?.filter(g => !g.technicalAnalysis).length || 0})</>}
+          <Button onClick={handleTechnicalPrep} disabled={!deepData || isTechnicalAnalyzing} className="h-14 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 hover:bg-yellow-500/20 font-black text-xs uppercase tracking-widest shadow-xl relative overflow-hidden">
+            {isTechnicalAnalyzing ? (
+              <div className="flex flex-col items-center">
+                <Loader2 className="w-4 h-4 animate-spin mb-1" />
+                <span className="text-[8px] font-mono leading-none">{analysisProgress}</span>
+              </div>
+            ) : <><Zap className="w-4 h-4 mr-2" /> 2. Полная подготовка</>}
           </Button>
 
           <Button onClick={handleGenerateAiReport} disabled={!deepData || isAIAnalyzing} className="h-14 rounded-2xl bg-gradient-to-r from-[#4fc3f7] to-[#2196f3] text-black hover:opacity-90 font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(79,195,247,0.4)]">
@@ -359,7 +344,6 @@ export function StudentProfile() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Table Area */}
         <div className="lg:col-span-1 bg-[#1a1a1a] border border-[#333] rounded-3xl overflow-hidden flex flex-col max-h-[600px] shadow-2xl">
           <div className="p-4 border-b border-[#222] bg-[#111]/50 flex justify-between items-center">
             <span className="text-[10px] font-black uppercase text-[#666] tracking-widest">Выборка</span>
@@ -389,7 +373,6 @@ export function StudentProfile() {
           </div>
         </div>
 
-        {/* Report Area */}
         <div className="lg:col-span-2 space-y-6">
           {aiReport ? (
             <div className="bg-[#1a1a1a] border-2 border-[#4fc3f7]/30 rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden">
@@ -414,7 +397,6 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Archive */}
       <div className="mt-8 space-y-6">
         <div className="flex items-center gap-3 text-xs font-black text-[#666] uppercase tracking-[0.3em] border-l-2 border-[#4fc3f7] pl-4">
           <Clock className="w-4 h-4" /> Архив аналитики
