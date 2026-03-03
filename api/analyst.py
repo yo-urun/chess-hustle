@@ -11,7 +11,7 @@ from functools import lru_cache
 # --- Configuration ---
 LICHESS_CLOUD_EVAL_URL = "https://lichess.org/api/cloud-eval"
 
-@lru_cache(max_size=1024)
+@lru_cache(maxsize=1024)
 def fetch_cloud_eval(fen: str) -> Optional[Dict]:
     try:
         # Requesting multiPv and wdl for better LLM context
