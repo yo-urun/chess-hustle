@@ -12,60 +12,67 @@ export class StockfishPool {
   }
 
   /**
-   * Processes a batch of games in parallel using available engines
+   * High-Performance Move Parallelization
+   * Analyzes all moves of a game simultaneously across all available workers
    */
   public async analyzeBatch(
     games: any[], 
-    onProgress: (gameIdx: number, moveIdx: number, totalMoves: number) => void
+    onProgress: (status: string) => void
   ) {
-    const queue = [...games];
+    const { Chess } = await import("chess.js");
     const results: any[] = [];
-    const activeTasks: Promise<void>[] = [];
 
-    const worker = async (engine: StockfishEngine, workerIdx: number) => {
-      while (queue.length > 0) {
-        const game = queue.shift();
-        if (!game) break;
-
-        const { Chess } = await import("chess.js");
-        const chess = new Chess();
-        chess.loadPgn(game.pgn);
-        const moves = chess.history();
-        const evals: any[] = [];
+    for (let gIdx = 0; gIdx < games.length; gIdx++) {
+      const game = games[gIdx];
+      const chess = new Chess();
+      chess.loadPgn(game.pgn);
+      const history = chess.history({ verbose: true });
+      
+      // 1. Prepare all FENs for parallel analysis
+      const movesToAnalyze: { fen: string; moveIdx: number }[] = [];
+      const tempChess = new Chess();
+      for (let i = 0; i < history.length; i++) {
+        tempChess.move(history[i].san);
         
-        chess.reset();
-        for (let m = 0; m < moves.length; m++) {
-          chess.move(moves[m]);
-          
-          // Smart Skip: If we already have eval from Lichess, use it
-          const existing = game.evals?.find((e: any) => e.move === m + 1);
-          if (existing) {
-            evals.push(existing);
-            continue;
-          }
+        // Skip if eval already exists from Lichess
+        const existing = game.evals?.find((e: any) => e.move === i + 1);
+        if (!existing) {
+          movesToAnalyze.push({ fen: tempChess.fen(), moveIdx: i + 1 });
+        }
+      }
 
-          // Granular progress callback
-          onProgress(workerIdx, m + 1, moves.length);
+      if (movesToAnalyze.length === 0) {
+        results.push(game);
+        continue;
+      }
 
-          const result = await engine.evaluateFen(chess.fen(), 150); // 150ms limit
+      // 2. Distribute moves across the pool
+      const moveEvals: any[] = [];
+      const chunks = Array.from({ length: this.size }, () => [] as typeof movesToAnalyze);
+      movesToAnalyze.forEach((item, index) => {
+        chunks[index % this.size].push(item);
+      });
+
+      onProgress(`Партия ${gIdx + 1}/${games.length}: Параллельный анализ ${movesToAnalyze.length} ходов...`);
+
+      const workerTasks = chunks.map(async (chunk, wIdx) => {
+        const engine = this.engines[wIdx];
+        for (const item of chunk) {
+          const result = await engine.evaluateFen(item.fen, 150);
           if (result.cp !== undefined || result.mate !== undefined) {
-            evals.push({
-              move: m + 1,
+            moveEvals.push({
+              move: item.moveIdx,
               eval: (result.cp ?? (result.mate! * 1000)) / 100.0,
               bestMove: result.bestMove
             });
           }
         }
-        results.push({ ...game, evals: [...(game.evals || []), ...evals] });
-      }
-    };
+      });
 
-    // Launch workers
-    for (let i = 0; i < this.engines.length; i++) {
-      activeTasks.push(worker(this.engines[i], i));
+      await Promise.all(workerTasks);
+      results.push({ ...game, evals: [...(game.evals || []), ...moveEvals] });
     }
 
-    await Promise.all(activeTasks);
     return results;
   }
 
