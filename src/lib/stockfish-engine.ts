@@ -1,59 +1,63 @@
 /**
- * Stockfish WASM Engine Wrapper
- * Stable version with semaphore and enhanced timeouts
+ * Stockfish WASM Engine Wrapper - Simplified Stable Version
  */
 
 export class StockfishEngine {
   private worker: Worker | null = null;
-  private isReady: boolean = false;
-  private isAnalyzing: boolean = false; // Semaphore to prevent concurrent commands
 
   constructor() {
     if (typeof window !== 'undefined') {
-      this.worker = new Worker('/stockfish.js');
-      this.sendCommand('uci');
-      this.sendCommand('setoption name Threads value 1');
-      this.sendCommand('setoption name Hash value 32');
-      this.sendCommand('isready');
+      try {
+        this.worker = new Worker('/stockfish.js');
+        this.worker.onmessage = (e) => {
+          // Global debug logging to see engine lifecycle
+          console.log(`[Stockfish OUT]: ${e.data}`);
+        };
+        console.log("[Stockfish] Worker instance created.");
+        this.sendCommand('uci');
+      } catch (err) {
+        console.error("[Stockfish] Failed to create worker:", err);
+      }
     }
   }
 
   public sendCommand(command: string) {
-    this.worker?.postMessage(command);
+    if (this.worker) {
+      console.log(`[Stockfish IN]: ${command}`);
+      this.worker.postMessage(command);
+    }
   }
 
   /**
-   * Evaluates position with safety timeout and concurrent analysis protection
+   * Wait for the engine to be ready
+   */
+  public async waitReady(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.worker) return resolve();
+      
+      const listener = (e: MessageEvent) => {
+        if (e.data === 'readyok') {
+          this.worker?.removeEventListener('message', listener);
+          resolve();
+        }
+      };
+      
+      this.worker.addEventListener('message', listener);
+      this.sendCommand('isready');
+    });
+  }
+
+  /**
+   * Basic evaluation helper for a single position
    */
   public async evaluateFen(fen: string, movetime: number = 150): Promise<{ cp?: number; mate?: number; bestMove?: string }> {
-    // If already analyzing, we wait or resolve empty
-    if (this.isAnalyzing) {
-        console.warn("[Stockfish] Concurrent analysis attempt blocked.");
-        return {};
-    }
-
     return new Promise((resolve) => {
       if (!this.worker) return resolve({});
 
-      this.isAnalyzing = true;
       let lastEval: any = {};
       
-      const timeoutId = setTimeout(() => {
-        console.warn(`[Stockfish] 10s Timeout for FEN: ${fen}`);
-        this.sendCommand('stop'); // Stop the engine search
-        cleanup();
-        resolve({});
-      }, 10000); // Increased to 10s
-
-      const cleanup = () => {
-        clearTimeout(timeoutId);
-        if (this.worker) this.worker.onmessage = null;
-        this.isAnalyzing = false;
-      };
-
-      this.worker.onmessage = (e: MessageEvent) => {
+      const listener = (e: MessageEvent) => {
         const msg = e.data;
-        
         if (msg.startsWith('info') && msg.includes('score')) {
           const cpMatch = msg.match(/cp (-?\d+)/);
           const mateMatch = msg.match(/mate (-?\d+)/);
@@ -64,12 +68,12 @@ export class StockfishEngine {
         }
 
         if (msg.startsWith('bestmove')) {
-          const bestMove = msg.split(' ')[1];
-          cleanup();
-          resolve({ ...lastEval, bestMove });
+          this.worker?.removeEventListener('message', listener);
+          resolve({ ...lastEval, bestMove: msg.split(' ')[1] });
         }
       };
 
+      this.worker.addEventListener('message', listener);
       this.sendCommand(`position fen ${fen}`);
       this.sendCommand(`go movetime ${movetime}`);
     });
@@ -79,7 +83,7 @@ export class StockfishEngine {
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
-      this.isAnalyzing = false;
+      console.log("[Stockfish] Engine terminated.");
     }
   }
 }
