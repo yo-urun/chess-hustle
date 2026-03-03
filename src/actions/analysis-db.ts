@@ -150,3 +150,17 @@ export async function getStudentGames(studentId: string) {
 
   return data as GameRecord[];
 }
+
+export async function deleteAnalysis(id: string) {
+  const supabase = await getSupabase();
+  const { error } = await supabase
+    .from('analyses')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('[deleteAnalysis] Error:', error);
+    throw error;
+  }
+  return true;
+}
