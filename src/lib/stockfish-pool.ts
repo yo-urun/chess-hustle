@@ -26,9 +26,11 @@ export class StockfishPool {
         const game = games[gIdx];
         const chess = new Chess();
         
-        // Safety check for PGN loading
-        if (!chess.loadPgn(game.pgn)) {
-          console.error(`[StockfishPool] Failed to load PGN for game ${gIdx}`);
+        // Safety check for PGN loading (handling 'void' return in chess.js 1.0.0)
+        try {
+          chess.loadPgn(game.pgn);
+        } catch (e) {
+          console.error(`[StockfishPool] Failed to load PGN for game ${gIdx}:`, e);
           results.push(game);
           continue;
         }
