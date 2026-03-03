@@ -19,7 +19,8 @@ import {
   Zap,
   Trash2,
   Settings2,
-  Trophy
+  Trophy,
+  X
 } from "lucide-react"
 import { createLichessStudio, importPgnToStudio, sendLichessMessage } from "@/actions/lichess"
 import { collectStudentData, runBatchAnalysis } from "@/actions/analysis"
@@ -51,6 +52,7 @@ export function StudentProfile() {
   const [storedGames, setStoredGames] = useState<GameRecord[]>([])
   const [deepData, setDeepData] = useState<any[] | null>(null)
   
+  // Filters
   const [perfType, setPerfType] = useState<string>("blitz")
   const [colorFilter, setColorFilter] = useState<"white" | "black" | "all">("all")
   const [resultFilter, setResultFilter] = useState<"win" | "loss" | "draw" | "all">("all")
@@ -86,6 +88,7 @@ export function StudentProfile() {
     }
   };
 
+  // Базовая фильтрация из локальной БД
   const filteredGames = useMemo(() => {
     if (!storedGames) return [];
     return storedGames.filter(g => {
@@ -99,6 +102,7 @@ export function StudentProfile() {
     }).slice(0, maxGames);
   }, [storedGames, perfType, colorFilter, resultFilter, maxGames, selectedStudent]);
 
+  // Инициализация выборки (deepData) только при смене фильтров или загрузке
   useEffect(() => {
     if (filteredGames.length > 0) {
       setDeepData(filteredGames.map(g => ({
@@ -107,7 +111,8 @@ export function StudentProfile() {
         result: g.metadata?.result,
         pgn: g.pgn,
         evals: g.metadata?.evals || [],
-        technicalAnalysis: g.technical_analysis
+        technicalAnalysis: g.technical_analysis,
+        perfType: g.metadata?.perf_type
       })));
     } else {
       setDeepData(null);
@@ -116,18 +121,32 @@ export function StudentProfile() {
 
   if (!selectedStudent) return null
 
+  // Удаление партии из текущей выборки вручную
+  const handleRemoveFromSelection = (lichessId: string) => {
+    setDeepData(prev => prev ? prev.filter(g => g.id !== lichessId) : null);
+  };
+
   const handleFetchFromLichess = async () => {
     if (!selectedStudent?.id) return;
     setIsCollecting(true);
     try {
-      const options = { max: maxGames, perfType: perfType === 'all' ? undefined : perfType, color: colorFilter === 'all' ? undefined : colorFilter };
+      const options = { 
+        max: maxGames, 
+        perfType: perfType === 'all' ? undefined : perfType, 
+        color: colorFilter === 'all' ? undefined : colorFilter 
+      };
       const data = await collectStudentData(selectedStudent.nickname, options as any);
       if (data && data.length > 0) {
         await saveGamesBatch(data.map(g => ({
           lichess_id: g.id,
           student_id: selectedStudent.id!,
           pgn: g.pgn,
-          metadata: { opponent: g.opponent, result: g.result, evals: g.evals, perf_type: g.perfType }
+          metadata: { 
+            opponent: g.opponent, 
+            result: g.result, 
+            evals: g.evals, 
+            perf_type: g.perfType 
+          }
         })));
         const updatedGames = await getStudentGames(selectedStudent.id);
         setStoredGames(updatedGames);
@@ -141,7 +160,6 @@ export function StudentProfile() {
 
   const handleTechnicalPrep = async () => {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
-    
     const unanalyzed = deepData.filter(g => !g.technicalAnalysis);
     if (unanalyzed.length === 0) {
       alert('Все партии в текущей выборке уже подготовлены.');
@@ -157,12 +175,10 @@ export function StudentProfile() {
         setAnalysisProgress(status);
       });
 
-      setAnalysisProgress("Синхронизация...");
       await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedResults);
-      
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
-      alert('Техническая подготовка завершена (4 потока).');
+      alert('Техническая подготовка завершена.');
     } catch (error: any) {
       alert('Ошибка подготовки: ' + error.message);
     } finally {
@@ -188,7 +204,12 @@ export function StudentProfile() {
         pgn: deepData.filter(g => g.technicalAnalysis).map(g => g.pgn).join('\n\n'),
         analysis_data: readyGames,
         report: report,
-        metadata: { game_count: readyGames.length, perf_type: perfType, result_filter: resultFilter, color_filter: colorFilter }
+        metadata: { 
+          game_count: readyGames.length, 
+          perf_type: perfType, 
+          result_filter: resultFilter, 
+          color_filter: colorFilter 
+        }
       });
       const updatedAnalyses = await getStudentAnalyses(selectedStudent.id);
       setSavedAnalyses(updatedAnalyses);
@@ -208,7 +229,7 @@ export function StudentProfile() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-6 flex flex-col gap-6 text-[#e0e0e0] font-sans">
+    <div className="mx-auto max-w-5xl px-4 py-6 flex flex-col gap-6 text-[#e0e0e0] font-sans selection:bg-[#4fc3f7]/30">
       <div className="flex items-center justify-between bg-[#1a1a1a] border border-[#333] p-4 rounded-2xl shadow-lg">
         <Button variant="ghost" onClick={() => selectStudent(null)} className="text-[#888] hover:text-white">
           <ArrowLeft className="mr-2 h-4 w-4" /> Назад
@@ -221,7 +242,6 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Filter Panel */}
       <div className="bg-[#1a1a1a] border border-[#333] p-6 rounded-3xl shadow-xl flex flex-col gap-6 border-b-4 border-b-[#4fc3f7]/20">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="space-y-2">
@@ -274,7 +294,7 @@ export function StudentProfile() {
 
           <div className="space-y-2">
             <Label className="text-[10px] text-[#666] uppercase font-black tracking-widest flex items-center gap-1.5">
-              <Layers className="w-3 h-3 text-[#4fc3f7]" /> Игр в отчет
+              <Layers className="w-3 h-3 text-[#4fc3f7]" /> Поиск (Lichess)
             </Label>
             <div className="flex items-center gap-2 bg-[#111] p-1 rounded-xl border border-[#222]">
               <Input type="number" value={maxGames} onChange={(e) => setMaxGames(parseInt(e.target.value) || 1)} className="h-8 w-full bg-transparent border-none text-xs font-black text-white focus-visible:ring-0" />
@@ -305,30 +325,39 @@ export function StudentProfile() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 bg-[#1a1a1a] border border-[#333] rounded-3xl overflow-hidden flex flex-col max-h-[600px] shadow-2xl">
           <div className="p-4 border-b border-[#222] bg-[#111]/50 flex justify-between items-center">
-            <span className="text-[10px] font-black uppercase text-[#666] tracking-widest">Выборка</span>
-            <span className="text-[10px] font-black text-[#4fc3f7] bg-[#4fc3f7]/10 px-2 py-0.5 rounded-full">{filteredGames.length} игр</span>
+            <span className="text-[10px] font-black uppercase text-[#666] tracking-widest">Текущая выборка</span>
+            <span className="text-[10px] font-black text-[#4fc3f7] bg-[#4fc3f7]/10 px-2 py-0.5 rounded-full">{deepData?.length || 0} игр</span>
           </div>
           <div className="overflow-y-auto custom-scrollbar">
-            {filteredGames.map((game) => (
-              <div key={game.lichess_id} className="p-4 border-b border-[#222] hover:bg-white/[0.02] flex items-center justify-between group transition-colors">
+            {deepData?.map((game) => (
+              <div key={game.id} className="p-4 border-b border-[#222] hover:bg-white/[0.02] flex items-center justify-between group transition-colors">
                 <div className="flex flex-col gap-1">
                   <div className="text-xs font-black flex items-center gap-2">
-                    {game.technical_analysis ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <Zap className="w-3 h-3 text-yellow-500/30" />}
-                    vs {game.metadata?.opponent}
+                    {game.technicalAnalysis ? <CheckCircle2 className="w-3 h-3 text-green-500" /> : <Zap className="w-3 h-3 text-yellow-500/30" />}
+                    vs {game.opponent}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className={`text-[9px] font-black uppercase px-1.5 rounded ${game.metadata?.result === 'Win' ? 'bg-green-500/10 text-green-500' : game.metadata?.result === 'Loss' ? 'bg-red-500/10 text-red-500' : 'bg-gray-500/10 text-gray-500'}`}>
-                      {game.metadata?.result}
+                    <span className={`text-[9px] font-black uppercase px-1.5 rounded ${game.result === 'Win' ? 'bg-green-500/10 text-green-500' : game.result === 'Loss' ? 'bg-red-500/10 text-red-500' : 'bg-gray-500/10 text-gray-500'}`}>
+                      {game.result}
                     </span>
-                    <span className="text-[9px] font-black text-[#444] uppercase tracking-tighter">{game.metadata?.perf_type || 'OLD'}</span>
+                    <span className="text-[9px] font-black text-[#444] uppercase tracking-tighter">{game.perfType}</span>
                   </div>
                 </div>
-                <a href={`https://lichess.org/${game.lichess_id}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-[#333] hover:text-[#4fc3f7] hover:bg-white/5 transition-all">
-                  <ExternalLink className="w-4 h-4" />
-                </a>
+                <div className="flex items-center gap-1">
+                  <a href={`https://lichess.org/${game.id}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-[#333] hover:text-[#4fc3f7] hover:bg-white/5 transition-all">
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  <button 
+                    onClick={() => handleRemoveFromSelection(game.id)}
+                    className="p-2 rounded-lg text-[#333] hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                    title="Удалить из выборки"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
-            {filteredGames.length === 0 && <div className="p-12 text-center text-[#444] text-xs font-black uppercase italic tracking-widest">Выборка пуста</div>}
+            {(!deepData || deepData.length === 0) && <div className="p-12 text-center text-[#444] text-xs font-black uppercase italic tracking-widest">Выборка пуста</div>}
           </div>
         </div>
 

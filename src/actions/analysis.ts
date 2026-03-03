@@ -24,7 +24,7 @@ export async function runBatchAnalysis(
   const payload = games.map(g => ({ 
     pgn: g.pgn, 
     evals: g.evals,
-    lichess_id: g.lichess_id // Explicitly pass ID to Python
+    lichess_id: g.lichess_id 
   }));
   
   const result = await callPythonAnalyst(payload, username);
@@ -55,7 +55,9 @@ export async function collectStudentData(
     color?: 'white' | 'black';
   }
 ) {
-  const fetchLimit = Math.max(options.max, 100);
+  // Lichess API отлично фильтрует по типу и цвету.
+  // Мы запрашиваем чуть больше (x2), только если Lichess не может отфильтровать сам (например, результат игры)
+  const fetchLimit = options.max * 2; 
   const rawGames: LichessGame[] = await fetchUserGames(username, { ...options, max: fetchLimit });
   
   return rawGames.map((g: LichessGame) => {
