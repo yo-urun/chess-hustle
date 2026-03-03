@@ -19,10 +19,7 @@ import {
   Zap,
   Trash2,
   Settings2,
-  Filter,
-  Trophy,
-  XCircle,
-  MinusCircle
+  Trophy
 } from "lucide-react"
 import { createLichessStudio, importPgnToStudio, sendLichessMessage } from "@/actions/lichess"
 import { collectStudentData, runBatchAnalysis } from "@/actions/analysis"
@@ -56,7 +53,7 @@ export function StudentProfile() {
   const [perfType, setPerfType] = useState<string>("blitz")
   const [colorFilter, setColorFilter] = useState<"white" | "black" | "all">("all")
   const [resultFilter, setResultFilter] = useState<"win" | "loss" | "draw" | "all">("all")
-  const [maxGames, setMaxGames] = useState<number>(10)
+  const [maxGames, setMaxGames] = useState<number>(20)
   const [studioUrl, setStudioUrl] = useState<string | null>(null)
 
   useEffect(() => {
@@ -82,21 +79,15 @@ export function StudentProfile() {
     }
   };
 
-  // Профессиональная фильтрация по базе
   const filteredGames = useMemo(() => {
     return storedGames.filter(g => {
-      // Фильтр по цвету
       const isWhite = g.pgn.includes(`[White "${selectedStudent?.nickname}"]`);
       const matchesColor = colorFilter === "all" || (colorFilter === "white" && isWhite) || (colorFilter === "black" && !isWhite);
-      
-      // Фильтр по результату
-      const res = g.metadata.result; // 'Win', 'Loss', 'Draw'
+      const res = g.metadata.result;
       const matchesResult = resultFilter === "all" || resultFilter === res.toLowerCase();
-      
-      // Фильтр по типу контроля (если есть в PGN)
-      const matchesPerf = perfType === "all" || g.pgn.includes(`[Variant "${perfType}"]`) || true;
-
-      return matchesColor && matchesResult;
+      // Simple variant check in PGN
+      const matchesPerf = perfType === "all" || g.pgn.includes(`[Variant "${perfType}"]`) || g.pgn.includes(`[Event "Rated ${perfType.charAt(0).toUpperCase() + perfType.slice(1)} game"]`);
+      return matchesColor && matchesResult && (perfType === 'all' || matchesPerf);
     }).slice(0, maxGames);
   }, [storedGames, colorFilter, resultFilter, maxGames, selectedStudent, perfType]);
 
@@ -136,17 +127,15 @@ export function StudentProfile() {
     try {
       const toAnalyze = filteredGames.filter(g => !g.technical_analysis).slice(0, 10);
       if (toAnalyze.length === 0) {
-        alert('В текущей выборке все партии уже подготовлены.');
+        alert('Все выбранные партии уже имеют технический анализ.');
         return;
       }
-
       const payload = toAnalyze.map(g => ({ pgn: g.pgn, lichess_id: g.lichess_id, evals: g.metadata.evals }));
       await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, payload);
-      
       const updatedGames = await getStudentGames(selectedStudent.id);
       setStoredGames(updatedGames);
     } catch (error: any) {
-      alert('Ошибка подготовки данных: ' + error.message);
+      alert('Ошибка тех. анализа: ' + error.message);
     } finally {
       setIsTechnicalAnalyzing(false);
     }
@@ -157,7 +146,7 @@ export function StudentProfile() {
     const readyGames = filteredGames.filter(g => g.technical_analysis).map(g => g.technical_analysis);
     
     if (readyGames.length === 0) {
-      alert('Нет подготовленных данных! Запустите "Подготовку данных" для выбранных партий.');
+      alert('Нет подготовленных данных! Запустите "Подготовку данных".');
       return;
     }
 
@@ -182,8 +171,7 @@ export function StudentProfile() {
       const updatedAnalyses = await getStudentAnalyses(selectedStudent.id);
       setSavedAnalyses(updatedAnalyses);
     } catch (error: any) {
-      console.error("AI Error:", error);
-      alert('Ошибка ИИ (401 или другая): ' + error.message);
+      alert('Ошибка ИИ: ' + error.message);
     } finally {
       setIsAIAnalyzing(false);
     }
@@ -197,9 +185,12 @@ export function StudentProfile() {
     } catch (e) { alert('Ошибка при удалении'); }
   };
 
+  const handleCreateStudio = async () => {
+    alert('Эта функция временно ограничена из-за прав доступа Lichess.');
+  };
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 flex flex-col gap-6 text-[#e0e0e0] font-sans selection:bg-[#4fc3f7]/30">
-      {/* Top Header */}
       <div className="flex items-center justify-between bg-[#1a1a1a] border border-[#333] p-4 rounded-2xl shadow-lg">
         <Button variant="ghost" onClick={() => selectStudent(null)} className="text-[#888] hover:text-white">
           <ArrowLeft className="mr-2 h-4 w-4" /> Назад
@@ -212,7 +203,6 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Filter Panel - Always on Top */}
       <div className="bg-[#1a1a1a] border border-[#333] p-6 rounded-3xl shadow-xl flex flex-col gap-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="space-y-2">
@@ -273,7 +263,6 @@ export function StudentProfile() {
           </div>
         </div>
 
-        {/* Unified Actions Bar */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-white/5">
           <Button onClick={handleFetchFromLichess} disabled={isCollecting} className="h-14 rounded-2xl bg-white text-black hover:bg-[#4fc3f7] font-black text-xs uppercase tracking-widest">
             {isCollecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Database className="w-4 h-4 mr-2" /> 1. Загрузить игры</>}
@@ -289,12 +278,10 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Main Grid: Selection and Report */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Selection Table */}
         <div className="lg:col-span-1 bg-[#1a1a1a] border border-[#333] rounded-3xl overflow-hidden flex flex-col max-h-[600px]">
           <div className="p-4 border-b border-[#222] bg-[#111]/50 flex justify-between items-center">
-            <span className="text-[10px] font-black uppercase text-[#666] tracking-tighter">Текущая выборка</span>
+            <span className="text-[10px] font-black uppercase text-[#666] tracking-tighter">Выборка</span>
             <span className="text-[10px] font-black text-[#4fc3f7]">{filteredGames.length} игр</span>
           </div>
           <div className="overflow-y-auto custom-scrollbar">
@@ -309,7 +296,6 @@ export function StudentProfile() {
                     <span className={`text-[9px] font-black uppercase px-1.5 rounded ${game.metadata.result === 'Win' ? 'bg-green-500/10 text-green-500' : game.metadata.result === 'Loss' ? 'bg-red-500/10 text-red-500' : 'bg-gray-500/10 text-gray-500'}`}>
                       {game.metadata.result}
                     </span>
-                    {game.technical_analysis && <span className="text-[9px] text-[#444]">Интерес: {game.technical_analysis.summary.interest_score.toFixed(1)}</span>}
                   </div>
                 </div>
                 <a href={`https://lichess.org/${game.lichess_id}`} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-[#333] hover:text-[#4fc3f7] hover:bg-white/5 transition-all">
@@ -317,34 +303,31 @@ export function StudentProfile() {
                 </a>
               </div>
             ))}
-            {filteredGames.length === 0 && <div className="p-12 text-center text-[#444] text-xs font-bold uppercase italic">Выборка пуста</div>}
           </div>
         </div>
 
-        {/* Active Report Area */}
         <div className="lg:col-span-2 space-y-6">
           {aiReport ? (
-            <div className="bg-[#1a1a1a] border-2 border-[#4fc3f7]/30 rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500 relative">
+            <div className="bg-[#1a1a1a] border-2 border-[#4fc3f7]/30 rounded-3xl p-8 shadow-2xl animate-in fade-in zoom-in-95 duration-500 relative overflow-hidden">
               <div className="flex justify-between items-center mb-8 border-b border-white/5 pb-4">
                 <h3 className="text-xs font-black text-[#4fc3f7] uppercase tracking-[0.3em] flex items-center gap-3">
-                  <Sparkles className="w-5 h-5" /> Новый коучинг-отчет
+                  <Sparkles className="w-5 h-5" /> Коучинг-отчет
                 </h3>
                 <Button variant="ghost" size="sm" onClick={() => setAiReport(null)} className="text-[#444] hover:text-white">Закрыть</Button>
               </div>
-              <div className="text-lg leading-relaxed text-white/90 whitespace-pre-wrap font-serif selection:bg-[#4fc3f7]/50">
+              <div className="text-lg leading-relaxed text-white/90 whitespace-pre-wrap font-sans">
                 {aiReport}
               </div>
             </div>
           ) : (
             <div className="h-full min-h-[300px] flex flex-col items-center justify-center border-2 border-dashed border-[#222] rounded-3xl text-[#333] gap-4">
               <BrainCircuit className="w-12 h-12 opacity-20" />
-              <span className="text-xs font-black uppercase tracking-widest opacity-20 text-center px-8">Настройте фильтры и создайте отчет,<br/>чтобы увидеть рекомендации ИИ</span>
+              <span className="text-xs font-black uppercase tracking-widest opacity-20 text-center px-8">Настройте фильтры и создайте отчет</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Archive Section */}
       <div className="mt-8 space-y-6">
         <div className="flex items-center gap-3 text-xs font-black text-[#666] uppercase tracking-[0.2em]">
           <Clock className="w-4 h-4" /> Архив аналитики
@@ -354,7 +337,7 @@ export function StudentProfile() {
             <div key={analysis.id} className="bg-[#1a1a1a] border border-[#333] rounded-3xl p-6 hover:border-[#4fc3f7]/30 transition-all group flex flex-col gap-4">
               <div className="flex justify-between items-start">
                 <div className="flex flex-col gap-1">
-                  <div className="text-xs font-black text-white">{new Date(analysis.created_at).toLocaleDateString()} в {new Date(analysis.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                  <div className="text-xs font-black text-white">{new Date(analysis.created_at).toLocaleDateString()}</div>
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     <span className="text-[8px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-black uppercase">
                       {analysis.metadata?.game_count || 0} игр
@@ -362,10 +345,6 @@ export function StudentProfile() {
                     <span className="text-[8px] px-2 py-0.5 rounded-full bg-[#4fc3f7]/10 text-[#4fc3f7] border border-[#4fc3f7]/20 font-black uppercase">
                       {analysis.metadata?.perf_type || 'chess'}
                     </span>
-                    <span className="text-[8px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-black uppercase">
-                      {analysis.metadata?.result_filter || 'all'}
-                    </span>
-
                   </div>
                 </div>
                 <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 rounded-xl text-[#333] hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100">

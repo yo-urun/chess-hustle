@@ -12,7 +12,7 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
   );
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Auth required');
+  if (!user) throw new Error('Пожалуйста, войдите в систему');
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -20,73 +20,47 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     .eq('id', user.id)
     .single();
 
-  if (!profile) throw new Error('Profile not found');
+  if (!profile) throw new Error('Профиль тренера не найден');
 
-  let prompt = "";
+  // Очищаем данные для промпта, чтобы уменьшить токены и дать ИИ ссылки
+  const minimalGamesData = gamesData.map(g => ({
+    id: g.game_id,
+    url: g.game_info?.url || `https://lichess.org/${g.game_id}`,
+    white: g.game_info?.white,
+    black: g.game_info?.black,
+    result: g.game_info?.result,
+    summary: g.summary,
+    eval_history: g.eval_history
+  }));
 
-  if (isPythonAnalysis) {
-    prompt = `
-      Ты — элитный шахматный тренер. Проанализируй игру ученика ${studentNickname}.
-      Я предоставляю тебе данные от Python-аналитика, который разложил партии на 9 параметров (материал, мобильность, пространство, безопасность короля, позиционные факторы, тактика, контроль полей, темп).
-      Если в данных есть поле "stockfish", используй эти точные оценки для подтверждения своих выводов.
-      
-      ДАННЫЕ АНАЛИЗА:
-      ${JSON.stringify(gamesData, null, 2)}
-      
-      ТВОЯ ЗАДАЧА:
-      1. Проведи глубокий анализ игры, выделив сильные и слабые стороны ученика на основе 9 параметров.
-      2. Объясни причины изменений в критических моментах (critical_moments). Почему упала безопасность короля? Как было потеряно пространство? Если есть оценка Stockfish, соотнеси её с изменениями параметров.
-      3. Используй формат [описание](pos:FEN) для ссылок на позиции, чтобы ученик мог их посмотреть.
-      4. Дай конкретные рекомендации по улучшению игры.
-      5. Пиши на русском языке, профессионально, конструктивно и вдохновляюще.
-      6. В конце сделай резюме: над чем работать в первую очередь.
-    `;
-  } else {
-    prompt = `
-      Ты — элитный шахматный тренер. Твоя задача — проанализировать критические ошибки ученика ${studentNickname} на основе данных Stockfish.
-      
-      Для каждой ошибки тебе предоставлено:
-      - Текстовое описание доски (Board State) перед ошибкой.
-      - Список фигур (Pieces).
-      - Ход, который был сделан (Played).
-      - Лучший ход по мнению Stockfish (Best).
-      - Принципиальный вариант продолжения (PV) для лучшего хода.
-      
-      ДАННЫЕ ПАРТИЙ:
-      ${JSON.stringify(gamesData.map(g => ({
-        opponent: g.opponent,
-        result: g.result,
-        blunders: g.blunders.map((b: any) => ({
-          move: b.move,
-          board: b.boardDescription,
-          played: b.played,
-          best: b.best,
-          continuation: b.pv,
-          loss: (b.diff/100).toFixed(1)
-        }))
-      })), null, 2)}
+  const prompt = `
+    Ты — элитный шахматный тренер. Твоя задача — составить профессиональный отчет для ученика ${studentNickname}.
+    
+    ИНСТРУКЦИИ ПО ФОРМАТУ:
+    1. НЕ используй Markdown заголовки (символы #, ##, ###).
+    2. НЕ используй жирный текст (**текст**) и курсив (*текст*). 
+    3. Вывод должен быть чистым текстом, разделенным на абзацы.
+    4. Когда ты ссылаешься на конкретную партию, ОБЯЗАТЕЛЬНО пиши её полную ссылку в формате (например: https://lichess.org/ABCDEFGH).
+    5. Используй формат [ход](pos:FEN) только если хочешь показать конкретную позицию на доске.
+    6. Пиши на русском языке, вдохновляюще и по делу.
 
-      ТВОЙ АНАЛИЗ (на русском языке):
-      1. Идентифицируй типичные тактические или стратегические пробелы (связки, зевки, вилки и т.д.).
-      2. Объясни ПРИЧИНУ 2-3 самых ярких ошибок. 
-         ВАЖНО: Когда ты ссылаешься на конкретную позицию или ход, ОБЯЗАТЕЛЬНО используй формат: [описание](pos:FEN), чтобы пользователь мог кликнуть и увидеть доску.
-         Пример: "Здесь ход [Кf3](pos:r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2) был бы лучше".
-      3. Дай конкретный план тренировок.
-      
-      Пиши профессионально, кратко и по делу. Не используй FEN вне ф��рмата [текст](pos:FEN).
-    `;
-  }
+    ДАННЫЕ ПАРТИЙ:
+    ${JSON.stringify(minimalGamesData, null, 2)}
+    
+    СТРУКТУРА ОТЧЕТА:
+    - Общий обзор игры ученика за текущий период.
+    - Анализ сильных сторон.
+    - Разбор ключевых ошибок с указанием конкретных партий (и их ссылок).
+    - Конкретные рекомендации и план работы.
+  `;
 
   if (profile.ai_provider === 'ollama') {
-    const endpoint = profile.ollama_endpoint || "https://api.ollama.com/v1";
-    // Определяем, какой API формат использовать (стандартный Ollama или OpenAI-совместимый /v1)
+    const endpoint = profile.ollama_endpoint || "http://localhost:11434";
     const isOpenAIStyle = endpoint.includes('/v1');
     const url = isOpenAIStyle ? `${endpoint}/chat/completions` : `${endpoint}/api/generate`;
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (profile.ollama_api_key) {
-      headers['Authorization'] = `Bearer ${profile.ollama_api_key}`;
-    }
+    if (profile.ollama_api_key) headers['Authorization'] = `Bearer ${profile.ollama_api_key}`;
 
     const body = isOpenAIStyle ? {
       model: profile.ollama_model || "gemini-3-flash-preview",
@@ -100,26 +74,29 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     
     if (!response.ok) {
+      if (response.status === 401) throw new Error('Ошибка 401: Неверный API ключ для AI провайдера');
       const errorText = await response.text();
-      throw new Error(`Ошибка API (${response.status}): ${errorText || response.statusText}`);
+      throw new Error(`AI API Error (${response.status}): ${errorText || response.statusText}`);
     }
 
     const result = await response.json();
-    
-    if (isOpenAIStyle) {
-      return result.choices?.[0]?.message?.content || 'Ошибка OpenAI-совместимого API';
-    }
-    return result.response || 'Ошибка Ollama API';
+    return isOpenAIStyle ? result.choices?.[0]?.message?.content : result.response;
   } else {
     // Gemini Direct Cloud
     const apiKey = profile.gemini_api_key || process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY не настроен');
+    if (!apiKey) throw new Error('API ключ Gemini не настроен.');
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(`Gemini Error: ${err.error?.message || 'Ошибка API'}`);
+    }
 
     const result = await response.json();
     return result.candidates?.[0]?.content?.parts?.[0]?.text || 'Не удалось сгенерировать отчет';
