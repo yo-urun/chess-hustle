@@ -15,6 +15,16 @@ export interface SavedAnalysis {
   created_at: string;
 }
 
+export interface GameRecord {
+  id?: string;
+  lichess_id: string;
+  student_id: string;
+  coach_id: string;
+  pgn: string;
+  metadata: any;
+  created_at?: string;
+}
+
 async function getSupabase() {
   const cookieStore = await cookies();
   return createServerClient(
@@ -80,4 +90,46 @@ export async function getStudentAnalyses(studentId: string) {
   }
 
   return data as SavedAnalysis[];
+}
+
+export async function saveGamesBatch(games: Omit<GameRecord, 'id' | 'coach_id' | 'created_at'>[]) {
+  const supabase = await getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  const insertData = games.map(g => ({
+    ...g,
+    coach_id: user.id
+  }));
+
+  const { data, error } = await supabase
+    .from('games')
+    .upsert(insertData, { 
+      onConflict: 'lichess_id,student_id',
+      ignoreDuplicates: false 
+    })
+    .select();
+
+  if (error) {
+    console.error('[saveGamesBatch] Error:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+export async function getStudentGames(studentId: string) {
+  const supabase = await getSupabase();
+  const { data, error } = await supabase
+    .from('games')
+    .select('*')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[getStudentGames] Error:', error);
+    return [];
+  }
+
+  return data as GameRecord[];
 }

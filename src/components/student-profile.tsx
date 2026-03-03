@@ -15,11 +15,12 @@ import {
   ChevronRight,
   History,
   Clock,
-  Swords
+  Swords,
+  Layers
 } from "lucide-react"
 import { createLichessStudio, importPgnToStudio, sendLichessMessage } from "@/actions/lichess"
 import { collectStudentData, runBatchAnalysis } from "@/actions/analysis"
-import { saveAnalysis, getStudentAnalyses, SavedAnalysis } from "@/actions/analysis-db"
+import { saveAnalysis, getStudentAnalyses, SavedAnalysis, saveGamesBatch, getStudentGames, GameRecord } from "@/actions/analysis-db"
 import { generateCoachingReport } from "@/actions/ai-coach"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,6 +35,7 @@ export function StudentProfile() {
   const [aiReport, setAiReport] = useState<string | null>(null)
   const [recommendedGames, setRecommendedGames] = useState<any[] | null>(null)
   const [savedAnalyses, setSavedAnalyses] = useState<SavedAnalysis[]>([])
+  const [storedGames, setStoredGames] = useState<GameRecord[]>([])
   
   // Filter states
   const [perfType, setPerfType] = useState<string>("blitz")
@@ -47,12 +49,37 @@ export function StudentProfile() {
 
   useEffect(() => {
     if (selectedStudent) {
-      loadSavedAnalyses();
-      setDeepData(null);
-      setAiReport(null);
-      setRecommendedGames(null);
+      loadInitialData();
     }
   }, [selectedStudent]);
+
+  const loadInitialData = async () => {
+    if (!selectedStudent?.id) return;
+    setIsCollecting(true);
+    try {
+      const [analyses, games] = await Promise.all([
+        getStudentAnalyses(selectedStudent.id),
+        getStudentGames(selectedStudent.id)
+      ]);
+      setSavedAnalyses(analyses);
+      setStoredGames(games);
+      
+      // Если есть сохраненные игры, отобразим их как текущую выборку
+      if (games.length > 0) {
+        setDeepData(games.map(g => ({
+          id: g.lichess_id,
+          opponent: g.metadata.opponent,
+          result: g.metadata.result,
+          pgn: g.pgn,
+          blunders: g.metadata.blunders || []
+        })));
+      }
+    } catch (e) {
+      console.error("Load error:", e);
+    } finally {
+      setIsCollecting(false);
+    }
+  };
 
   const loadSavedAnalyses = async () => {
     if (!selectedStudent?.id) return;
@@ -64,7 +91,6 @@ export function StudentProfile() {
 
   const handleDeepCollect = async () => {
     setIsCollecting(true);
-    setDeepData(null);
     try {
       const options: any = {
         max: maxGames,
@@ -76,8 +102,26 @@ export function StudentProfile() {
       }
 
       const data = await collectStudentData(selectedStudent.nickname, options);
+      
+      // Сохраняем загруженные партии в БД
+      if (data.length > 0) {
+        await saveGamesBatch(data.map(g => ({
+          lichess_id: g.id,
+          student_id: selectedStudent.id,
+          pgn: g.pgn,
+          metadata: {
+            opponent: g.opponent,
+            result: g.result,
+            blunders: g.blunders
+          }
+        })));
+        
+        // Обновляем список сохраненных игр
+        const games = await getStudentGames(selectedStudent.id);
+        setStoredGames(games);
+      }
+      
       setDeepData(data);
-      console.log(`[handleDeepCollect] Loaded ${data.length} games`);
     } catch (error: any) {
       alert('Ошибка при сборе истории: ' + error.message);
     } finally {
@@ -92,26 +136,14 @@ export function StudentProfile() {
     }
     setIsAIAnalyzing(true);
     try {
-      // Берем PGN только тех партий, которые были загружены
       const pgns = deepData.map(g => g.pgn).filter(Boolean);
-      
-      if (pgns.length === 0) throw new Error('Нет доступных PGN для анализа.');
-
-      const result = await runBatchAnalysis(
-        selectedStudent.id,
-        selectedStudent.nickname,
-        pgns,
-        isDeepAnalysis
-      );
+      const result = await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, pgns, isDeepAnalysis);
       
       setRecommendedGames(result.analyses.slice(0, 3));
-
       const report = await generateCoachingReport(selectedStudent.nickname, result.analyses, true);
       setAiReport(report);
-
       loadSavedAnalyses();
     } catch (error: any) {
-      console.error('[handlePythonAnalysis] Error:', error);
       alert(error.message || 'Ошибка при работе Python-аналитика.');
     } finally {
       setIsAIAnalyzing(false);
@@ -136,11 +168,9 @@ export function StudentProfile() {
 
       const message = `Привет! Я подготовил для тебя обучающую студию с разбором твоих последних ошибок: ${url}`;
       await sendLichessMessage(selectedStudent.nickname, message);
-
       setStudioUrl(url);
       alert('Студия создана и ссылка отправлена ученику!');
     } catch (error: any) {
-      console.error('[handleCreateStudio] Error:', error);
       alert('Ошибка при создании студии: ' + error.message);
     } finally {
       setIsCreatingStudio(false);
@@ -235,7 +265,7 @@ export function StudentProfile() {
             className="flex-1 h-12 rounded-xl bg-[#4fc3f7] text-black hover:bg-[#4fc3f7]/90 font-bold"
           >
             {isCollecting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Database className="w-5 h-5 mr-2" />}
-            {isCollecting ? 'Загрузка из Lichess...' : 'Загрузить партии'}
+            {isCollecting ? 'Загрузка...' : 'Загрузить новые партии'}
           </Button>
         </div>
       </div>
@@ -245,9 +275,9 @@ export function StudentProfile() {
         <div className="bg-[#2a2a2a] border border-blue-500/20 p-6 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-black text-blue-400 uppercase tracking-wider flex items-center gap-2">
-              <Swords className="w-4 h-4" /> Загружено партий: {deepData.length}
+              <Layers className="w-4 h-4" /> Партий в выборке: {deepData.length}
             </h3>
-            <span className="text-[10px] text-[#666]">Готовы к анализу</span>
+            <span className="text-[10px] text-[#666]">({storedGames.length} всего в базе)</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
             {deepData.map((game) => (
@@ -259,7 +289,7 @@ export function StudentProfile() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {game.blunders.length > 0 && (
+                  {game.blunders && game.blunders.length > 0 && (
                     <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 border border-red-500/20">
                       {game.blunders.length} зевков
                     </span>
@@ -273,7 +303,6 @@ export function StudentProfile() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Карточка Python Анализа */}
         <div className="bg-[#2a2a2a] border border-[#333] p-8 rounded-3xl flex flex-col gap-6">
           <div className="flex items-center gap-3">
             <BrainCircuit className="w-6 h-6 text-[#4fc3f7]" />
@@ -310,7 +339,6 @@ export function StudentProfile() {
           </button>
         </div>
 
-        {/* Карточка Студии */}
         <div className="bg-[#2a2a2a] border border-[#333] p-8 rounded-3xl flex flex-col gap-6">
           <div className="flex items-center gap-3">
             <MessageSquareShare className="w-6 h-6 text-green-400" />
@@ -330,7 +358,6 @@ export function StudentProfile() {
         </div>
       </div>
 
-      {/* Рекомендованные партии */}
       {recommendedGames && recommendedGames.length > 0 && (
         <div className="bg-[#1a1a1a] border border-yellow-500/20 p-8 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
           <h3 className="text-sm font-black text-yellow-500 uppercase tracking-wider mb-6 flex items-center gap-2">
@@ -356,7 +383,6 @@ export function StudentProfile() {
         </div>
       )}
 
-      {/* Результат Анализа */}
       {aiReport && (
         <div className="bg-[#2a2a2a] border border-[#4fc3f7]/20 p-10 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-700">
           <h3 className="text-xs font-black text-[#4fc3f7] uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
@@ -368,7 +394,6 @@ export function StudentProfile() {
         </div>
       )}
 
-      {/* История анализов */}
       {savedAnalyses.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-[#888] flex items-center gap-2">
@@ -402,7 +427,6 @@ export function StudentProfile() {
         </div>
       )}
 
-      {/* Ссылка на студию если создана */}
       {studioUrl && (
         <div className="bg-green-500/5 border border-green-500/20 p-6 rounded-2xl flex items-center justify-between">
           <div className="flex items-center gap-3 text-green-400">
