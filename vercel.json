@@ -4,10 +4,5 @@
       "source": "/api/analyst",
       "destination": "/api/analyst.py"
     }
-  ],
-  "functions": {
-    "api/*.py": {
-      "runtime": "@vercel/python"
-    }
-  }
+  ]
 }
