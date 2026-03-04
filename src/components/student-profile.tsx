@@ -163,14 +163,21 @@ export function StudentProfile() {
         setAnalysisProgress(status);
       });
 
+      console.log(`[handleTechnicalPrep] Analysis done. Sending ${analyzedResults.length} games to Python/DB sync...`);
       setAnalysisProgress("Синхронизация...");
       const result = await runBatchAnalysis(selectedStudent.id, selectedStudent.nickname, analyzedResults);
-
+      
       if (!result.success) {
+        console.error("[handleTechnicalPrep] Sync failed:", result.error);
         throw new Error(result.error || 'Ошибка при сохранении результатов анализа');
       }
 
+      console.log(`[handleTechnicalPrep] Sync success. Count: ${result.count}. Waiting for DB refresh...`);
+      // Short delay to ensure Supabase state is settled
+      await new Promise(r => setTimeout(r, 1000));
+
       const updatedGames = await getStudentGames(selectedStudent.id);
+      console.log(`[handleTechnicalPrep] Loaded ${updatedGames.length} games from DB.`);
       setStoredGames(updatedGames);
       alert(`Техническая подготовка завершена. Обработано партий: ${result.count}`);    } catch (error: any) {
       alert('Ошибка подготовки: ' + error.message);
