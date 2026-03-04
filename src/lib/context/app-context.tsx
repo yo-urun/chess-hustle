@@ -33,7 +33,7 @@ export const MOCK_STUDENTS: Student[] = [
   { id: 'demo-4', nickname: 'Aggressive_Pawn', addedAt: new Date().toISOString(), lastAnalysis: '2026-03-03T09:15:00Z', newGames: 0 }
 ];
 
-export function AppProvider({ children }: { children: React.Node }) {
+export function AppProvider({ children }: { children: React.ReactNode }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [view, setView] = useState<'dashboard' | 'profile' | 'settings'>('dashboard');
