@@ -30,7 +30,8 @@ export const MOCK_STUDENTS: Student[] = [
   { id: 'demo-1', nickname: 'Magnus_Junior', addedAt: new Date().toISOString(), lastAnalysis: '2026-03-01T12:00:00Z', newGames: 5 },
   { id: 'demo-2', nickname: 'Tactics_Machine', addedAt: new Date().toISOString(), lastAnalysis: '2026-02-28T15:30:00Z', newGames: 12 },
   { id: 'demo-3', nickname: 'Endgame_Master', addedAt: new Date().toISOString(), lastAnalysis: undefined, newGames: 3 },
-  { id: 'demo-4', nickname: 'Aggressive_Pawn', addedAt: new Date().toISOString(), lastAnalysis: '2026-03-03T09:15:00Z', newGames: 0 }
+  { id: 'demo-4', nickname: 'Aggressive_Pawn', addedAt: new Date().toISOString(), lastAnalysis: '2026-03-03T09:15:00Z', newGames: 0 },
+  { id: 'demo-5', nickname: 'Sicilian_Expert', addedAt: new Date().toISOString(), lastAnalysis: '2026-03-02T18:45:00Z', newGames: 7 }
 ];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
