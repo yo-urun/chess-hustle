@@ -39,9 +39,11 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
         ${m.severity === 'blunder' ? 'Критическая ошибка!' : ''}`;
     });
 
+    const gameId = g.game_id || (info.Site ? info.Site.split('/').pop() : 'unknown');
+    
     return {
       game: `${info.White || 'Белые'} vs ${info.Black || 'Черные'}`,
-      url: info.Site || `https://lichess.org/${g.game_id}`,
+      url: info.Site || (gameId !== 'unknown' ? `https://lichess.org/${gameId}` : null),
       summary: `Зевков: ${stats.blunders}, Жертв: ${stats.brilliant_moves}, Упущено тактик: ${stats.missed_tactics}`,
       highlights: keyMoments.slice(0, 5) // Берем топ-5 самых важных моментов партии
     };
@@ -51,15 +53,15 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     ТЫ — АКТИВНЫЙ ШАХМАТНЫЙ ТЬЮТОР. Твоя цель — не просто перечислить ошибки, а ОБЪЯСНИТЬ концепции ученику ${studentNickname}.
     
     ТВОЙ СТИЛЬ:
-    - Профессиональный, но вдохновляющий (как в курсах Chess.com или Chessable).
-    - ТЕМПЕРАТУРА = 0 (строго по фактам).
-    - Каждое утверждение должно опираться на ДАННЫЕ АНАЛИЗА.
+    - Профессиональный, но вдохновляющий.
+    - НИКОГДА не используй символы решетки (#), звездочки (*) или другие Markdown-маркеры для заголовков или жирного текста.
+    - Текст должен быть чистым, разделенным только переносами строк.
+    - Единственный допустимый Markdown — это ссылки в формате [Описание](URL).
 
     ИНСТРУКЦИИ:
-    1. ИСПОЛЬЗУЙ КЛИКАБЕЛЬНЫЕ ССЫЛКИ: Когда говоришь о партии, обязательно давай ссылку на неё в формате Markdown: [Название партии](URL).
-    2. ОБЪЯСНЯЙ "ПОЧЕМУ": Если в данных есть "trappedPiece", объясни, что фигура оказалась в ловушке из-за отсутствия полей. Если "discoveredCheck" — опиши опасность вскрытого нападения.
-    3. РАЗБИРАЙ УПУЩЕННОЕ: Если ученик пропустил вилку (missed_tactics: fork), укажи на это как на зону роста.
-    4. ФОРМАТ: Чистый текст, разделенный абзацами. Используй Markdown для ссылок и жирного текста.
+    1. ИСПОЛЬЗУЙ КЛИКАБЕЛЬНЫЕ ССЫЛКИ: Когда говоришь о партии, обязательно давай ссылку на неё в формате [Название партии](URL).
+    2. ОБЪЯСНЯЙ "ПОЧЕМУ": Описывай шахматные идеи простыми словами.
+    3. ФОРМАТ: Только текст и ссылки. НИКАКОГО форматирования через символы # или *.
 
     ДАННЫЕ ДЛЯ АНАЛИЗА:
     ${JSON.stringify(tacticalHighlights, null, 2)}
@@ -67,9 +69,14 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     СТРУКТУРА:
     - Приветствие и краткий итог по всем партиям.
     - Глубокий разбор 2-3 самых поучительных моментов (с использованием ссылок [Партия](URL)).
-    - Психологический портрет.
-    - Конкретное домашнее задание.
+    - Психологический портрет и конкретное домашнее задание.
   `;
+
+  const cleanResponse = (text: string) => {
+    // Принудительно вырезаем все * и #, которые ИИ может добавить по привычке, 
+    // кроме тех, что внутри ссылок [text](url)
+    return text.replace(/(?<!\[[^\]]*)[#*]/g, '').trim();
+  };
 
   if (profile.ai_provider === 'ollama') {
     const endpoint = profile.ollama_endpoint || "http://localhost:11434";
@@ -92,7 +99,8 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
 
     const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     const result = await response.json();
-    return isOpenAIStyle ? result.choices?.[0]?.message?.content : result.response;
+    const rawText = isOpenAIStyle ? result.choices?.[0]?.message?.content : result.response;
+    return cleanResponse(rawText);
   } else {
     // Gemini Cloud
     const apiKey = profile.gemini_api_key || process.env.GEMINI_API_KEY;
@@ -108,6 +116,7 @@ export async function generateCoachingReport(studentNickname: string, gamesData:
     });
 
     const result = await response.json();
-    return result.candidates?.[0]?.content?.parts?.[0]?.text || 'Не удалось сформировать отчет';
+    const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || 'Не удалось сформировать отчет';
+    return cleanResponse(rawText);
   }
 }
