@@ -235,6 +235,28 @@ export function StudentProfile() {
     } catch (e) { alert('Ошибка при удалении'); }
   };
 
+  const renderReportContent = (content: string) => {
+    // Регулярка для поиска [текст](url)
+    const parts = content.split(/(\[.*?\]\(.*?\))/g);
+    return parts.map((part, i) => {
+      const match = part.match(/\[(.*?)\]\((.*?)\)/);
+      if (match) {
+        return (
+          <a
+            key={i}
+            href={match[2]}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#4fc3f7] underline hover:text-[#2196f3] transition-colors font-black"
+          >
+            {match[1]}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-6 flex flex-col gap-6 text-[#e0e0e0] font-sans selection:bg-[#4fc3f7]/30">
       <div className="flex items-center justify-between bg-[#1a1a1a] border border-[#333] p-4 rounded-2xl shadow-lg">
@@ -378,7 +400,7 @@ export function StudentProfile() {
                 <Button variant="ghost" size="sm" onClick={() => setAiReport(null)} className="text-[#444] hover:text-white rounded-full">ЗАКРЫТЬ</Button>
               </div>
               <div className="text-lg leading-relaxed text-white/90 whitespace-pre-wrap font-sans selection:bg-[#4fc3f7]/50">
-                {aiReport}
+                {renderReportContent(aiReport)}
               </div>
             </div>
           ) : (
