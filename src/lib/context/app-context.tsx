@@ -20,19 +20,40 @@ interface AppContextType {
   view: 'dashboard' | 'profile' | 'settings';
   setView: (view: 'dashboard' | 'profile' | 'settings') => void;
   isLoading: boolean;
+  isDemoMode: boolean;
+  setIsDemoMode: (val: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export function AppProvider({ children }: { children: React.ReactNode }) {
+export const MOCK_STUDENTS: Student[] = [
+  { id: 'demo-1', nickname: 'Magnus_Junior', addedAt: new Date().toISOString(), lastAnalysis: '2026-03-01T12:00:00Z', newGames: 5 },
+  { id: 'demo-2', nickname: 'Tactics_Machine', addedAt: new Date().toISOString(), lastAnalysis: '2026-02-28T15:30:00Z', newGames: 12 },
+  { id: 'demo-3', nickname: 'Endgame_Master', addedAt: new Date().toISOString(), lastAnalysis: undefined, newGames: 3 },
+  { id: 'demo-4', nickname: 'Aggressive_Pawn', addedAt: new Date().toISOString(), lastAnalysis: '2026-03-03T09:15:00Z', newGames: 0 }
+];
+
+export function AppProvider({ children }: { children: React.Node }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [view, setView] = useState<'dashboard' | 'profile' | 'settings'>('dashboard');
   const [isLoading, setIsLoading] = useState(true);
+  const [isDemoMode, setIsDemoMode] = useState(false);
   const [supabase] = useState(() => createClient());
 
-  // Загрузка учеников из Supabase
+  // Auto-detect demo mode from cookie
   useEffect(() => {
+    const isDemo = document.cookie.includes('chess_demo_mode=true');
+    if (isDemo) {
+      setIsDemoMode(true);
+      setStudents(MOCK_STUDENTS);
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isDemoMode) return;
+
     const fetchStudents = async () => {
       setIsLoading(true);
       try {
@@ -55,7 +76,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             nickname: s.nickname,
             addedAt: s.added_at,
             lastAnalysis: s.last_analysis,
-            newGames: 0, // Это значение будет вычисляться позже через Lichess API
+            newGames: 0,
           }));
           setStudents(formattedStudents);
         }
@@ -67,9 +88,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
 
     fetchStudents();
-  }, [supabase]);
+  }, [supabase, isDemoMode]);
 
   const addStudent = async (nickname: string) => {
+    if (isDemoMode) {
+      alert('В демо-режиме нельзя добавлять новых учеников.');
+      return;
+    }
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Пользователь не авторизован');
@@ -107,6 +132,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const removeStudent = async (nickname: string) => {
+    if (isDemoMode) {
+      setStudents(prev => prev.filter(s => s.nickname !== nickname));
+      return;
+    }
     try {
       const { error } = await supabase
         .from('students')
@@ -130,6 +159,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setView(student ? 'profile' : 'dashboard');
   };
 
+  const handleSetIsDemoMode = (val: boolean) => {
+    setIsDemoMode(val);
+    if (val) {
+      document.cookie = "chess_demo_mode=true; path=/; max-age=3600";
+      setStudents(MOCK_STUDENTS);
+    } else {
+      document.cookie = "chess_demo_mode=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -141,6 +180,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         view,
         setView,
         isLoading,
+        isDemoMode,
+        setIsDemoMode: handleSetIsDemoMode
       }}
     >
       {children}

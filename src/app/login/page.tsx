@@ -31,6 +31,24 @@ export default function LoginPage() {
 
         <div className="w-full flex flex-col gap-4">
           <LichessSignInButton />
+          
+          <div className="relative my-2">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-white/5"></span></div>
+            <div className="relative flex justify-center text-[10px] uppercase font-bold tracking-widest text-[#444]">
+              <span className="bg-[#2a2a2a] px-2">или</span>
+            </div>
+          </div>
+
+          <button 
+            onClick={() => {
+              document.cookie = "chess_demo_mode=true; path=/; max-age=3600";
+              window.location.href = '/';
+            }}
+            className="w-full h-12 rounded-xl bg-white/5 border border-white/5 text-[#e0e0e0] hover:bg-white/10 hover:border-[#4fc3f7]/30 transition-all font-bold text-sm uppercase tracking-widest"
+          >
+            Войти в демо-режим
+          </button>
+          
           <p className="text-[#e0e0e0]/40 text-center text-xs px-4">
             Авторизация происходит через официальный API Lichess. Мы получаем доступ только к вашим публичным данным и почте.
           </p>

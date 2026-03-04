@@ -25,16 +25,17 @@ export async function middleware(request: NextRequest) {
   });
 
   const { data: { user } } = await supabase.auth.getUser();
+  const isDemo = request.cookies.has('chess_demo_mode');
 
   const isProtected = ['/', '/students', '/settings'].some(path => 
     request.nextUrl.pathname === path || request.nextUrl.pathname.startsWith(path + '/')
   );
 
-  if (isProtected && !user && request.nextUrl.pathname !== '/login') {
+  if (isProtected && !user && !isDemo && request.nextUrl.pathname !== '/login') {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  if (user && request.nextUrl.pathname === '/login') {
+  if ((user || isDemo) && request.nextUrl.pathname === '/login') {
     return NextResponse.redirect(new URL('/', request.url));
   }
 

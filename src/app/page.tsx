@@ -12,17 +12,27 @@ import { useApp } from '@/lib/context/app-context';
 export default function HomePage() {
   const [user, setUser] = useState<any>(null);
   const [supabase] = useState(() => createClient());
-  const { view, setView, selectStudent } = useApp();
+  const { view, setView, selectStudent, isDemoMode, setIsDemoMode } = useApp();
 
   useEffect(() => {
+    if (isDemoMode) {
+      setUser({ user_metadata: { username: 'Демо-Тренер' } });
+      return;
+    }
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
     };
     getUser();
-  }, [supabase]);
+  }, [supabase, isDemoMode]);
 
   const handleSignOut = async () => {
+    if (isDemoMode) {
+      setIsDemoMode(false);
+      document.cookie = "chess_demo_mode=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      window.location.href = '/login';
+      return;
+    }
     await supabase.auth.signOut();
     window.location.href = '/login';
   };
