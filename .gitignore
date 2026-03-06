@@ -57,3 +57,5 @@ next-env.d.ts
 # AI Assistant
 .roo/
 .roomodes
+PROJECT_DESCRIPTION.md
+ARCHITECTURE.md
