@@ -1,36 +1,32 @@
-# Техническая архитектура ChessCoachAi
+# Архитектура проекта ChessCoachAi
 
-Данный документ описывает техническую реализацию проекта на текущий момент (март 2026).
+Проект следует принципам **Clean Architecture** и **SOLID**, разделяя ответственность на слои.
 
-## Стек технологий
-- **Framework:** Next.js 16.1.6 (Canary/RC) с App Router.
-- **Runtime:** React 19 (используется React Compiler для автоматической оптимизации).
-- **Styling:** Tailwind CSS v4.0 (использование CSS-переменных для темы).
-- **Database & Auth:** Supabase (PostgreSQL + Auth SSR).
-- **Icons:** Lucide React.
-- **UI Components:** Кастомные компоненты на базе Radix UI (из папки `v0design`).
+## Стек
+- **Frontend:** Next.js 15 (App Router, Server Components)
+- **Backend:** Next.js Server Actions + Python-аналитик (Vercel Functions)
+- **DB & Auth:** Supabase (Postgres + OAuth Lichess)
+- **Анализ:** Local Stockfish (WASM) + Lichess Cloud Eval
 
-## Структура проекта
-- `/chess-coach-ai`: Основное приложение.
-  - `/src/actions`: Server Actions для логики (Auth, Lichess API).
-  - `/src/app`: Роуты приложения (Next.js App Router).
-  - `/src/components`: UI-компоненты (shared и специфичные для доменов).
-  - `/src/lib`: Утилиты, инициализация Supabase.
-- `/v0design`: Дизайн-система и прототипы компонентов (в процессе переноса в основной проект).
+## Уровни системы
 
-## Реализация авторизации (Lichess OAuth2 PKCE)
-Авторизация реализована вручную через протокол OAuth2 с использованием расширения PKCE (Proof Key for Code Exchange) для обеспечения максимальной безопасности.
+### 1. Слой данных (Supabase & API)
+- Хранение профилей тренеров, учеников и результатов анализа.
+- Прямая интеграция с Lichess API для импорта партий.
 
-1.  **Инициация (`/actions/auth.ts`):** Генерируется `code_verifier` и `code_challenge`. Данные сохраняются в `httpOnly` куки.
-2.  **Callback (`/app/auth/callback/route.ts`):** 
-    - Проверка `state` и `code_verifier`.
-    - Обмен кода на `access_token` через `https://lichess.org/api/token`.
-    - (Текущая реализация) Анонимный вход в Supabase и сохранение токенов в таблицу `profiles`.
+### 2. Слой моделей (Rich Domain Models)
+- **TechnicalAnalysis**: Класс-модель, инкапсулирующий логику обработки данных анализа (формирование URL, выделение ключевых моментов).
 
-## База данных (Supabase)
-- Таблица `profiles`: Хранит токены Lichess и настройки тренера.
-- Таблица `students` (планируется): Список учеников, привязанных к тренеру.
+### 3. Слой сервисов (Business Logic / Use Cases)
+- **CoachingService**: Центральный узел бизнес-логики. Обрабатывает данные анализа и готовит данные для ИИ.
+- **AiProvider (Strategy Pattern)**: Система провайдеров ИИ. Реализована через интерфейс `IAiProvider`, что позволяет переключаться между Gemini, Ollama или любым другим провайдером без изменения основного кода.
 
-## Интеграция с Lichess
-- Используется Personal Access Token (PAT) или OAuth Token для доступа к Cloud Eval API.
-- Импорт партий через Lichess API (NDJSON формат).
+### 4. Слой представления (UI)
+- React Server Components для эффективного рендеринга.
+- Client Components для интерактивной части (анализ на Stockfish в браузере).
+
+## Потоки данных
+1. Загрузка партий через Lichess API.
+2. Техническая подготовка (Stockfish в браузере).
+3. Синхронизация и обогащение данных через Python-аналитик.
+4. Генерация коучинг-отчета через `CoachingService` и выбранный `AiProvider`.
