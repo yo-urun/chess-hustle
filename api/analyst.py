@@ -143,11 +143,17 @@ def analyze_game(pgn_text: str, username: str, existing_evals: List[Dict] = None
             missed_tactics = [t for t in best_move_tactics if t not in played_tactics]
             
             move_san = board.san(move)
+            # GET CONTEXT DATA FOR LLM
+            current_fen = board.fen()
+            legal_moves = [board.san(m) for m in board.legal_moves]
+            
             board.push(move)
             
             annotation = {
                 "move_number": move_num,
                 "san": move_san,
+                "fen": current_fen,
+                "legal_moves": legal_moves[:20], # Limit to top 20 to keep JSON small
                 "eval": curr_eval,
                 "tactics": played_tactics,
                 "best_move": best_move_uci

@@ -38,7 +38,7 @@ export class TechnicalAnalysis {
     return `${info.White || 'Белые'} vs ${info.Black || 'Черные'}`;
   }
 
-  getKeyMoments(limit: number = 5): string[] {
+  getKeyMoments(limit: number = 5): any[] {
     return Object.values(this.data.analysis_map)
       .filter((m: any) => 
         m.severity === 'blunder' || 
@@ -46,20 +46,27 @@ export class TechnicalAnalysis {
         (m.missed_tactics && m.missed_tactics.length > 0)
       )
       .map((m: any) => {
-        return `Ход ${m.move_number} (${m.san}): Оценка ${m.eval.toFixed(1)}. 
-        ${m.tactics?.length ? `Темы: ${m.tactics.join(', ')}.` : ''} 
-        ${m.missed_tactics?.length ? `Упущено: ${m.missed_tactics.join(', ')}.` : ''}
-        ${m.severity === 'blunder' ? 'Критическая ошибка!' : ''}`;
+        return {
+          move_number: m.move_number,
+          move_san: m.san,
+          position_fen: m.fen,
+          legal_moves_available: m.legal_moves,
+          evaluation: m.eval.toFixed(1),
+          best_engine_move: m.best_move,
+          tactical_themes: m.tactics,
+          missed_opportunities: m.missed_tactics,
+          severity: m.severity
+        };
       })
       .slice(0, limit);
   }
 
   toJSON() {
     return {
-      game: this.opponent,
-      url: this.url,
-      summary: this.summaryText,
-      highlights: this.getKeyMoments()
+      game_title: this.opponent,
+      lichess_url: this.url,
+      engine_statistics: this.summaryText,
+      critical_positions: this.getKeyMoments()
     };
   }
 }
