@@ -39,15 +39,20 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <button 
-            onClick={() => {
+          <form 
+            action={() => {
               document.cookie = "chess_demo_mode=true; path=/; max-age=3600";
               window.location.href = '/';
             }}
-            className="w-full h-12 rounded-xl bg-white/5 border border-white/5 text-[#e0e0e0] hover:bg-white/10 hover:border-[#4fc3f7]/30 transition-all font-bold text-sm uppercase tracking-widest"
+            className="w-full"
           >
-            Войти в демо-режим
-          </button>
+            <button 
+              type="submit"
+              className="w-full h-12 rounded-xl bg-white/5 border border-white/5 text-[#e0e0e0] hover:bg-white/10 hover:border-[#4fc3f7]/30 transition-all font-bold text-sm uppercase tracking-widest"
+            >
+              Войти в демо-режим
+            </button>
+          </form>
           
           <p className="text-[#e0e0e0]/40 text-center text-xs px-4">
             Авторизация происходит через официальный API Lichess. Мы получаем доступ только к вашим публичным данным и почте.

@@ -58,6 +58,7 @@ export function StudentProfile() {
   const [maxGames, setMaxGames] = useState<number>(20)
   
   const [analysisProgress, setAnalysisProgress] = useState<string>("")
+  const [toast, setToast] = useState<{type: 'success' | 'error' | 'info', text: string} | null>(null)
   const poolRef = useRef<StockfishPool | null>(null);
 
   useEffect(() => {
@@ -69,6 +70,13 @@ export function StudentProfile() {
       poolRef.current = null;
     };
   }, [selectedStudent]);
+
+  useEffect(() => {
+    if (toast) {
+      const t = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [toast]);
 
   const loadInitialData = async () => {
     if (!selectedStudent?.id) return;
@@ -140,7 +148,7 @@ export function StudentProfile() {
         setStoredGames(updatedGames);
       }
     } catch (error: any) {
-      alert('Ошибка Lichess: ' + error.message);
+      setToast({type: 'error', text: 'Ошибка Lichess: ' + error.message});
     } finally {
       setIsCollecting(false);
     }
@@ -150,7 +158,7 @@ export function StudentProfile() {
     if (!deepData || deepData.length === 0 || !selectedStudent?.id) return;
     const unanalyzed = deepData.filter(g => !g.technicalAnalysis);
     if (unanalyzed.length === 0) {
-      alert('Все партии в текущей выборке уже подготовлены.');
+      setToast({type: 'info', text: 'Все партии в текущей выборке уже подготовлены.'});
       return;
     }
 
@@ -179,8 +187,8 @@ export function StudentProfile() {
       const updatedGames = await getStudentGames(selectedStudent.id);
       console.log(`[handleTechnicalPrep] Loaded ${updatedGames.length} games from DB.`);
       setStoredGames(updatedGames);
-      alert(`Техническая подготовка завершена. Обработано партий: ${result.count}`);    } catch (error: any) {
-      alert('Ошибка подготовки: ' + error.message);
+      setToast({type: 'success', text: `Техническая подготовка завершена. Обработано партий: ${result.count}`});    } catch (error: any) {
+      setToast({type: 'error', text: 'Ошибка подготовки: ' + error.message});
     } finally {
       setIsTechnicalAnalyzing(false);
       setAnalysisProgress("");
@@ -198,7 +206,7 @@ export function StudentProfile() {
     console.log(`[handleGenerateAiReport] Ready games found: ${readyGames.length}`);
 
     if (readyGames.length === 0) {
-      alert('Нет подготовленных данных! Убедитесь, что рядом с партиями стоит зеленая галочка.');
+      setToast({type: 'error', text: 'Нет подготовленных данных! Убедитесь, что рядом с партиями стоит зеленая галочка.'});
       return;
     }
 
@@ -221,7 +229,7 @@ export function StudentProfile() {
       const updatedAnalyses = await getStudentAnalyses(selectedStudent.id);
       setSavedAnalyses(updatedAnalyses);
     } catch (error: any) {
-      alert('Ошибка ИИ: ' + error.message);
+      setToast({type: 'error', text: 'Ошибка ИИ: ' + error.message});
     } finally {
       setIsAIAnalyzing(false);
     }
@@ -232,7 +240,7 @@ export function StudentProfile() {
     try {
       await deleteAnalysis(id);
       setSavedAnalyses(prev => prev.filter(a => a.id !== id));
-    } catch (e) { alert('Ошибка при удалении'); }
+    } catch (e) { setToast({type: 'error', text: 'Ошибка при удалении'}); }
   };
 
   const renderReportContent = (content: string) => {
@@ -326,7 +334,7 @@ export function StudentProfile() {
               <Layers className="w-3 h-3 text-[#4fc3f7]" /> Поиск (Lichess)
             </Label>
             <div className="flex items-center gap-2 bg-[#111] p-1 rounded-xl border border-[#222]">
-              <Input type="number" value={maxGames} onChange={(e) => setMaxGames(parseInt(e.target.value) || 1)} className="h-8 w-full bg-transparent border-none text-xs font-black text-white focus-visible:ring-0" />
+              <Input type="number" value={maxGames} onChange={(e) => setMaxGames(parseInt(e.target.value) || 1)} aria-label="Макс. количество партий" className="h-8 w-full bg-transparent border-none text-xs font-black text-white focus-visible:ring-0" />
             </div>
           </div>
         </div>
@@ -379,7 +387,7 @@ export function StudentProfile() {
                   <button 
                     onClick={() => handleRemoveFromSelection(game.id)}
                     className="p-2 rounded-lg text-[#333] hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                    title="Удалить из выборки"
+                    aria-label="Удалить из выборки"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -434,7 +442,7 @@ export function StudentProfile() {
                     </span>
                   </div>
                 </div>
-                <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 rounded-xl text-[#333] hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100">
+                <button onClick={() => handleDeleteAnalysis(analysis.id)} className="p-2 rounded-xl text-[#333] hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100" aria-label="Удалить отчёт">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -446,6 +454,19 @@ export function StudentProfile() {
           ))}
         </div>
       </div>
+      {toast && (
+        <div 
+          role="status" 
+          aria-live="polite"
+          className={`fixed bottom-6 right-6 px-5 py-3 rounded-xl text-sm font-bold shadow-2xl z-50 transition-all animate-in fade-in slide-in-from-bottom-2 ${
+            toast.type === 'error' ? 'bg-red-500/90 text-white' : 
+            toast.type === 'success' ? 'bg-green-500/90 text-white' : 
+            'bg-[#2a2a2a] text-[#e0e0e0] border border-[#333]'
+          }`}
+        >
+          {toast.text}
+        </div>
+      )}
     </div>
   )
 }

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
-import { LogOut, Settings as SettingsIcon, Users } from 'lucide-react';
+import { LogOut, Settings as SettingsIcon, Users, Menu } from 'lucide-react';
+import { Sheet, SheetContent, SheetTrigger, SheetClose } from '@/components/ui/sheet';
 import { Dashboard } from '@/components/dashboard';
 import { StudentProfile } from '@/components/student-profile';
 import { Settings } from '@/components/settings';
@@ -50,9 +51,50 @@ export default function HomePage() {
       {/* Верхняя панель */}
       <header className="h-14 border-b border-white/5 bg-[#2a2a2a] flex items-center justify-between px-6 sticky top-0 z-10">
         <div className="flex items-center gap-4">
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="md:hidden h-9 w-9">
+                <Menu className="w-5 h-5" />
+                <span className="sr-only">Открыть меню</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="bg-[#1f1f1f] border-[#333] w-[280px]">
+              <div className="flex flex-col gap-6 mt-8">
+                <button 
+                  onClick={() => selectStudent(null)}
+                  className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity text-left"
+                >
+                  ChessCoach<span className="text-[#4fc3f7]">Ai</span>
+                </button>
+                <nav className="flex flex-col gap-2">
+                  <SheetClose asChild>
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => selectStudent(null)}
+                      className={`justify-start flex items-center gap-2 ${view === 'dashboard' || view === 'profile' ? 'text-[#4fc3f7] bg-[#4fc3f7]/10' : ''}`}
+                    >
+                      <Users className="w-4 h-4" />
+                      Мои ученики
+                    </Button>
+                  </SheetClose>
+                  <SheetClose asChild>
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setView('settings')}
+                      className={`justify-start flex items-center gap-2 ${view === 'settings' ? 'text-[#4fc3f7] bg-[#4fc3f7]/10' : ''}`}
+                    >
+                      <SettingsIcon className="w-4 h-4" />
+                      Настройки
+                    </Button>
+                  </SheetClose>
+                </nav>
+              </div>
+            </SheetContent>
+          </Sheet>
           <button 
             onClick={() => selectStudent(null)}
             className="text-xl font-bold tracking-tight hover:opacity-80 transition-opacity"
+            aria-label="На главную"
           >
             ChessCoach<span className="text-[#4fc3f7]">Ai</span>
           </button>
@@ -87,7 +129,7 @@ export default function HomePage() {
             variant="ghost" 
             size="icon" 
             onClick={handleSignOut}
-            title="Выйти"
+            aria-label="Выйти"
             className="h-9 w-9 hover:bg-red-500/10 hover:text-red-400 transition-colors"
           >
             <LogOut className="w-4 h-4" />
@@ -112,7 +154,7 @@ export default function HomePage() {
             className="text-[10px] font-black uppercase tracking-[0.2em] text-[#e0e0e0] hover:text-[#4fc3f7] transition-all flex items-center gap-1.5 group border border-white/5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10"
           >
             takethe.space
-            <span className="w-1.5 h-1.5 rounded-full bg-[#4fc3f7] animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-[#4fc3f7] motion-reduce:animate-none animate-pulse" />
           </a>
         </div>
       </footer>

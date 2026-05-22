@@ -19,6 +19,8 @@ export function Settings() {
     ollama_model: "gemini-3-flash-preview"
   })
 
+  const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -48,16 +50,17 @@ export function Settings() {
 
   const handleSave = async () => {
     setSaving(true)
+    setMessage(null)
     const { data: { user } } = await supabase.auth.getUser()
     if (user) {
       const { error } = await supabase.from('profiles').update(settings).eq('id', user.id)
-      if (error) alert("Ошибка при сохранении: " + error.message)
-      else alert("Настройки сохранены!")
+      if (error) setMessage({type: 'error', text: error.message})
+      else setMessage({type: 'success', text: 'Настройки сохранены!'})
     }
     setSaving(false)
   }
 
-  if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin text-[#4fc3f7]" /></div>
+  if (loading) return <div className="p-10 flex justify-center"><Loader2 className="animate-spin motion-reduce:animate-none text-[#4fc3f7]" /></div>
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
@@ -143,9 +146,14 @@ export function Settings() {
           disabled={saving}
           className="w-full bg-[#4fc3f7] hover:bg-[#4fc3f7]/90 text-[#1f1f1f] font-bold"
         >
-          {saving ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <Save className="w-4 h-4 mr-2" />}
+          {saving ? <Loader2 className="animate-spin motion-reduce:animate-none w-4 h-4 mr-2" /> : <Save className="w-4 h-4 mr-2" />}
           Сохранить изменения
         </Button>
+        {message && (
+          <div role="status" aria-live="polite" className={`text-sm text-center font-medium mt-2 ${message.type === 'error' ? 'text-red-400' : 'text-green-400'}`}>
+            {message.text}
+          </div>
+        )}
       </div>
     </div>
   )

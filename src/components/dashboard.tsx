@@ -63,6 +63,7 @@ function AddStudentInput() {
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Введите ник на Lichess"
+            aria-label="Ник ученика на Lichess"
             className="w-full rounded-md border border-[#333] bg-[#2a2a2a] px-3 py-2 pl-9 text-sm text-[#e0e0e0] placeholder:text-[#666] focus:outline-none focus:ring-2 focus:ring-[#4fc3f7]/50 focus:border-[#4fc3f7] transition-colors"
           />
         </div>
